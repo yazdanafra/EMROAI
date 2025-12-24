@@ -9,6 +9,8 @@
   --color-primary-100: #dde1ff;
   --color-primary-500: #5f6FFF; 
   --color-primary-900: #0a1fcc; */
+
+  --auto-fill-grid: repeat(auto-fill, minmax(200px, 1fr));
 }
 
 .active hr {
