@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Commissioner:wght@100..900&family=Golos+Text:wght@400..900&family=Outfit:wght@100..900&display=swap");
 
 @theme {
   /* Add your primary color */
@@ -11,6 +12,7 @@
   --color-primary-900: #0a1fcc; */
 
   --auto-fill-grid: repeat(auto-fill, minmax(200px, 1fr));
+  --font-outfit: "Outfit", sans-serif;
 }
 
 .active hr {
