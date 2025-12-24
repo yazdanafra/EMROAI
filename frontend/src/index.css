@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+@theme {
+  /* Add your primary color */
+  --color-primary: #5f6fff;
+
+  /* Optional: Create a shade scale for more flexibility
+  --color-primary-50: #eef0ff;
+  --color-primary-100: #dde1ff;
+  --color-primary-500: #5f6FFF; 
+  --color-primary-900: #0a1fcc; */
+}
+
+.active hr {
+  @apply block;
+}
