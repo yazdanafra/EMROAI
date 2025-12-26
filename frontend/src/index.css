@@ -15,10 +15,20 @@
   --font-outfit: "Outfit", sans-serif;
 }
 
-.active hr {
-  @apply block;
+@layer components {
+  .active hr {
+    display: block;
+  }
 }
 
 ::-webkit-scrollbar {
   @apply hidden;
+}
+
+/* Mobile-specific active state */
+@media (max-width: 740px) {
+  .active p {
+    color: #ffffff;
+    background-color: var(--color-primary, #5f6fff);
+  }
 }
