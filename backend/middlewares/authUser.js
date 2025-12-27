@@ -1,6 +1,6 @@
+// backend/middlewares/authUser.js
 import jwt from "jsonwebtoken";
 
-// user authentication middleware
 const authUser = async (req, res, next) => {
   try {
     const { token } = req.headers;
@@ -11,7 +11,11 @@ const authUser = async (req, res, next) => {
       });
     }
     const token_decode = jwt.verify(token, process.env.JWT_SECRET);
+
+    // <-- PATCH: ensure req.body exists before setting userId
+    if (!req.body) req.body = {};
     req.body.userId = token_decode.id;
+
     next();
   } catch (error) {
     console.log(error);
