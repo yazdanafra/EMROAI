@@ -1,71 +1,26 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useState } from "react";
 import { AppContext } from "../context/AppContext";
+import { assets } from "../assets/assets";
 import axios from "axios";
 import { toast } from "react-toastify";
-import { assets } from "../assets/assets";
 
 const MyProfile = () => {
-  const [isEdit, setIsEdit] = useState(false);
-  const [image, setImage] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [localUserData, setLocalUserData] = useState(null);
-
-  const { token, backendUrl, userData, setUserData, loadUserProfileData } =
+  const { userData, setUserData, token, backendUrl, loadUserProfileData } =
     useContext(AppContext);
 
-  // ✅ Initialize with mock data if no backend
-  useEffect(() => {
-    // If userData from context exists, use it
-    if (userData) {
-      setLocalUserData(userData);
-      setLoading(false);
-      return;
-    }
-
-    // ✅ Mock user data for development
-    const mockUserData = {
-      name: "John Doe",
-      email: "johndoe@example.com",
-      phone: "+1 (555) 123-4567",
-      address: {
-        line1: "123 Main Street",
-        line2: "Apt 4B, New York, NY 10001",
-      },
-      gender: "Male",
-      dob: "1990-05-15",
-      image: assets.default_profile || "/default-profile.png",
-    };
-
-    // Set mock data and update context if setUserData exists
-    setLocalUserData(mockUserData);
-    if (setUserData) {
-      setUserData(mockUserData);
-    }
-    setLoading(false);
-
-    // Optional: Try to load real data if backend might be available
-    if (token && loadUserProfileData) {
-      loadUserProfileData();
-    }
-  }, [userData, token, loadUserProfileData, setUserData]);
+  const [isEdit, setIsEdit] = useState(false);
+  const [image, setImage] = useState(false);
 
   const updateUserProfileData = async () => {
-    // ✅ For development: Show success without backend
-    if (!backendUrl || backendUrl.includes("localhost")) {
-      toast.success("Profile updated successfully (development mode)");
-      setIsEdit(false);
-      setImage(false);
-      return;
-    }
-
-    // Original backend code
     try {
       const formData = new FormData();
-      formData.append("name", localUserData.name);
-      formData.append("phone", localUserData.phone);
-      formData.append("address", JSON.stringify(localUserData.address));
-      formData.append("gender", localUserData.gender);
-      formData.append("dob", localUserData.dob);
+
+      formData.append("name", userData.name);
+      formData.append("phone", userData.phone);
+      formData.append("address", JSON.stringify(userData.address));
+      formData.append("gender", userData.gender);
+      formData.append("dob", userData.dob);
+
       image && formData.append("image", image);
 
       const { data } = await axios.post(
@@ -83,203 +38,164 @@ const MyProfile = () => {
         toast.error(data.message);
       }
     } catch (error) {
-      console.log("Backend not available, using mock data:", error.message);
-      toast.success("Profile saved locally for development");
-      setIsEdit(false);
-      setImage(false);
+      console.log(error);
+      toast.error(error.message);
     }
   };
-
-  // ✅ Handle state updates for local data
-  const handleFieldChange = (field, value) => {
-    setLocalUserData((prev) => {
-      if (field.includes(".")) {
-        const [parent, child] = field.split(".");
-        return {
-          ...prev,
-          [parent]: {
-            ...prev[parent],
-            [child]: value,
-          },
-        };
-      }
-      return { ...prev, [field]: value };
-    });
-
-    // Also update context if available
-    if (setUserData) {
-      setUserData((prev) => {
-        if (!prev) return { [field]: value };
-        if (field.includes(".")) {
-          const [parent, child] = field.split(".");
-          return {
-            ...prev,
-            [parent]: {
-              ...prev[parent],
-              [child]: value,
-            },
-          };
-        }
-        return { ...prev, [field]: value };
-      });
-    }
-  };
-
-  if (loading) {
-    return <div className="p-8 text-center">Loading profile...</div>;
-  }
-
-  if (!localUserData) {
-    return <div className="p-8 text-center">No user data available</div>;
-  }
 
   return (
-    <div className="max-w-lg flex flex-col gap-2 text-sm pt-5">
-      {/* Profile Image */}
-      {isEdit ? (
-        <label htmlFor="image">
-          <div className="inline-block relative cursor-pointer">
-            <img
-              className="w-36 rounded opacity-75"
-              src={image ? URL.createObjectURL(image) : localUserData.image}
-              alt="Profile"
-            />
-            <img
-              className="w-10 absolute bottom-12 right-12"
-              src={image ? "" : assets.upload_icon}
-              alt="Upload"
-            />
-          </div>
-          <input
-            onChange={(e) => setImage(e.target.files[0])}
-            type="file"
-            id="image"
-            hidden
-          />
-        </label>
-      ) : (
-        <img className="w-36 rounded" src={localUserData.image} alt="Profile" />
-      )}
-
-      {/* Name */}
-      {isEdit ? (
-        <input
-          className="bg-gray-50 text-3xl font-medium max-w-60 p-2 rounded border"
-          type="text"
-          onChange={(e) => handleFieldChange("name", e.target.value)}
-          value={localUserData.name}
-        />
-      ) : (
-        <p className="font-medium text-3xl text-[#262626] mt-4">
-          {localUserData.name}
-        </p>
-      )}
-
-      <hr className="bg-[#ADADAD] h-[1px] border-none my-4" />
-
-      {/* Contact Information */}
-      <div>
-        <p className="text-gray-600 underline mt-3">CONTACT INFORMATION</p>
-        <div className="grid grid-cols-[1fr_3fr] gap-y-2.5 mt-3 text-[#363636]">
-          <p className="font-medium">Email id:</p>
-          <p className="text-blue-500">{localUserData.email}</p>
-
-          <p className="font-medium">Phone:</p>
-          {isEdit ? (
-            <input
-              className="bg-gray-50 max-w-52 p-2 rounded border"
-              type="text"
-              onChange={(e) => handleFieldChange("phone", e.target.value)}
-              value={localUserData.phone}
-            />
-          ) : (
-            <p className="text-blue-500">{localUserData.phone}</p>
-          )}
-
-          <p className="font-medium">Address:</p>
-          {isEdit ? (
-            <div className="space-y-2">
-              <input
-                className="bg-gray-50 w-full p-2 rounded border"
-                type="text"
-                onChange={(e) =>
-                  handleFieldChange("address.line1", e.target.value)
-                }
-                value={localUserData.address.line1}
-                placeholder="Address Line 1"
+    userData && (
+      <div className="max-w-lg flex flex-col gap-2 text-sm">
+        {isEdit ? (
+          <label htmlFor="image">
+            <div className="inline-block relative cursor-pointer">
+              <img
+                className="w-36 rounded opacity-75"
+                src={image ? URL.createObjectURL(image) : userData.image}
+                alt=""
               />
-              <input
-                className="bg-gray-50 w-full p-2 rounded border"
-                type="text"
-                onChange={(e) =>
-                  handleFieldChange("address.line2", e.target.value)
-                }
-                value={localUserData.address.line2}
-                placeholder="Address Line 2"
+              <img
+                className="w-10 absolute bottom-12 right-12"
+                src={image ? "" : assets.upload_icon}
+                alt=""
               />
             </div>
-          ) : (
-            <p className="text-gray-500">
-              {localUserData.address.line1} <br />
-              {localUserData.address.line2}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Basic Information */}
-      <div>
-        <p className="text-[#797979] underline mt-3">BASIC INFORMATION</p>
-        <div className="grid grid-cols-[1fr_3fr] gap-y-2.5 mt-3 text-gray-600">
-          <p className="font-medium">Gender:</p>
-          {isEdit ? (
-            <select
-              className="max-w-28 bg-gray-50 p-2 rounded border"
-              onChange={(e) => handleFieldChange("gender", e.target.value)}
-              value={localUserData.gender}
-            >
-              <option value="Not Selected">Not Selected</option>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Other">Other</option>
-            </select>
-          ) : (
-            <p className="text-gray-500">{localUserData.gender}</p>
-          )}
-
-          <p className="font-medium">Birthday:</p>
-          {isEdit ? (
             <input
-              className="max-w-28 bg-gray-50 p-2 rounded border"
-              type="date"
-              onChange={(e) => handleFieldChange("dob", e.target.value)}
-              value={localUserData.dob}
+              onChange={(e) => setImage(e.target.files[0])}
+              type="file"
+              id="image"
+              hidden
             />
+          </label>
+        ) : (
+          <img className="w-36 rounded" src={userData.image} alt="" />
+        )}
+
+        {isEdit ? (
+          <input
+            className="bg-gray-50 text-3xl font-medium max-w-60 mt-4"
+            type="text"
+            value={userData.name}
+            onChange={(e) =>
+              setUserData((prev) => ({ ...prev, name: e.target.value }))
+            }
+          />
+        ) : (
+          <p className="font-medium text-3xl text-neutral-800 mt-4">
+            {userData.name}
+          </p>
+        )}
+
+        <hr className="bg-zinc-400 h-[1px] border-none" />
+        <div>
+          <p className="text-neutral-500 underline mt-3">CONTACT INFORMATION</p>
+          <div className="grid grid-cols-[1fr_3fr] gap-y-2.5 mt-3 text-neutral-700">
+            <p className="font-medium">Email id:</p>
+            <p className="text-blue-500">{userData.email}</p>
+
+            <p className="font-medium">Phone:</p>
+            {isEdit ? (
+              <input
+                className="bg-gray-100 max-w-52"
+                type="text"
+                value={userData.phone}
+                onChange={(e) =>
+                  setUserData((prev) => ({ ...prev, phone: e.target.value }))
+                }
+              />
+            ) : (
+              <p className="text-blue-400">{userData.phone}</p>
+            )}
+
+            <p className="font-medium">Address:</p>
+            {isEdit ? (
+              <p>
+                <input
+                  className="bg-gray-50"
+                  onChange={(e) =>
+                    setUserData((prev) => ({
+                      ...prev,
+                      address: { ...prev.address, line1: e.target.value },
+                    }))
+                  }
+                  value={userData.address.line1}
+                  type="text"
+                />
+                <br />
+                <input
+                  className="bg-gray-50"
+                  onChange={(e) =>
+                    setUserData((prev) => ({
+                      ...prev,
+                      address: { ...prev.address, line2: e.target.value },
+                    }))
+                  }
+                  value={userData.address.line2}
+                  type="text"
+                />
+              </p>
+            ) : (
+              <p className="text-gray-500">
+                {userData.address.line1}
+                <br />
+                {userData.address.line2}
+              </p>
+            )}
+          </div>
+        </div>
+        <div>
+          <p className="text-neutral-500 underline mt-3">BASIC INFORMATION</p>
+          <div className="grid grid-cols-[1fr_3fr] gap-y-2.5 mt-3 text-neutral-700">
+            <p className="font-medium">Gender:</p>
+            {isEdit ? (
+              <select
+                className="max-w-20 bg-gray-100"
+                onChange={(e) =>
+                  setUserData((prev) => ({ ...prev, gender: e.target.value }))
+                }
+                value={userData.gender}
+              >
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+            ) : (
+              <p className="text-gray-400">{userData.gender}</p>
+            )}
+            <p className="font-medium">Birthday:</p>
+            {isEdit ? (
+              <input
+                className="max-w-28 bg-gray-100"
+                type="date"
+                onChange={(e) =>
+                  setUserData((prev) => ({ ...prev, dob: e.target.value }))
+                }
+                value={userData.dob}
+              />
+            ) : (
+              <p className="text-gray-400">{userData.dob}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-10">
+          {isEdit ? (
+            <button
+              className="border border-primary px-8 py-2 rounded-full hover:bg-primary hover:text-white transition-all"
+              onClick={updateUserProfileData}
+            >
+              Save information
+            </button>
           ) : (
-            <p className="text-gray-500">{localUserData.dob}</p>
+            <button
+              className="border border-primary px-8 py-2 rounded-full hover:bg-primary hover:text-white transition-all"
+              onClick={() => setIsEdit(true)}
+            >
+              Edit
+            </button>
           )}
         </div>
       </div>
-
-      {/* Action Buttons */}
-      <div className="mt-10">
-        {isEdit ? (
-          <button
-            onClick={updateUserProfileData}
-            className="border border-primary px-8 py-2 rounded-full hover:bg-primary hover:text-white transition-all bg-white"
-          >
-            Save information
-          </button>
-        ) : (
-          <button
-            onClick={() => setIsEdit(true)}
-            className="border border-primary px-8 py-2 rounded-full hover:bg-primary hover:text-white transition-all bg-white"
-          >
-            Edit Profile
-          </button>
-        )}
-      </div>
-    </div>
+    )
   );
 };
 

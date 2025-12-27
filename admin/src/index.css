@@ -1,1 +1,34 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Commissioner:wght@100..900&family=Golos+Text:wght@400..900&family=Outfit:wght@100..900&display=swap");
+
+@theme {
+  /* Add your primary color */
+  --color-primary: #5f6fff;
+
+  /* Optional: Create a shade scale for more flexibility
+  --color-primary-50: #eef0ff;
+  --color-primary-100: #dde1ff;
+  --color-primary-500: #5f6FFF; 
+  --color-primary-900: #0a1fcc; */
+
+  --auto-fill-grid: repeat(auto-fill, minmax(200px, 1fr));
+  --font-outfit: "Outfit", sans-serif;
+}
+
+@layer components {
+  .active hr {
+    display: block;
+  }
+}
+
+::-webkit-scrollbar {
+  @apply hidden;
+}
+
+/* Mobile-specific active state */
+@media (max-width: 740px) {
+  .active p {
+    color: #ffffff;
+    background-color: var(--color-primary, #5f6fff);
+  }
+}

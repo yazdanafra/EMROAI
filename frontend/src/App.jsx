@@ -8,13 +8,16 @@ import Contact from "./pages/Contact";
 import MyProfile from "./pages/MyProfile";
 import MyAppointments from "./pages/MyAppointments";
 import Appointment from "./pages/Appointment";
-import NavBar from "./components/NavBar";
+import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 const App = () => {
   return (
     <div className="font-outfit mx-4 sm:mx-[10%]">
-      <NavBar />
+      <ToastContainer />
+      <Navbar />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/doctors" element={<Doctors />} />
