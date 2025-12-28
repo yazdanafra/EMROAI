@@ -17,25 +17,24 @@ const About = () => {
         />
         <div className="flex flex-col justify-center gap-6 md:w-2/4 text-sm text-gray-600">
           <p>
-            Welcome To Prescripto, Your Trusted Partner In Managing Your
-            HealthCare Needs Conveniently And Efficiently. At Prescripto, We
-            Understand The Challenges Individuals Face When It Comes To
-            Scheduling Doctor Appointments And Managing Their Health Records.
+            Welcome To Ophix, Your Trusted Partner In Managing Your HealthCare
+            Needs Conveniently And Efficiently. At Ophix, We Understand The
+            Challenges Individuals Face When It Comes To Scheduling Doctor
+            Appointments And Managing Their Health Records.
           </p>
           <p>
-            Prescripto Is Commited To Excellence In Healthcare Technology. We
+            Ophix Is Commited To Excellence In Healthcare Technology. We
             Continously Strive To Enhance Our Platform, Integrating The Latest
             Advancements To Improve User Experience And Deliver Superior
             Service. Whether You're Booking Your First Appointment Or Managing
-            Ongoing Care, Prescripto Is Here To Support You Every Step Of The
-            Way.
+            Ongoing Care, Ophix Is Here To Support You Every Step Of The Way.
           </p>
           <b className="text-gray-800">Our Vision</b>
           <p>
-            Our Vision At Prescripto Is To Create A Seamless HealthCare
-            Experience For Every User. We Aim To Bridge The Gap Between Patients
-            And HealthCare Providers, Making It Easier For You To Access The
-            Care You Need, When You Need It.
+            Our Vision At Ophix Is To Create A Seamless HealthCare Experience
+            For Every User. We Aim To Bridge The Gap Between Patients And
+            HealthCare Providers, Making It Easier For You To Access The Care
+            You Need, When You Need It.
           </p>
         </div>
       </div>
