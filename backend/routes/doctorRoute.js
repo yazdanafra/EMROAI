@@ -9,14 +9,16 @@ import {
   doctorDashboard,
   doctorProfile,
   updateDoctorProfile,
-  doctorPatients, // <-- new
-} from "../controllers/doctorController.js";
+  doctorPatients,
+  doctorPatientAppointments, // <-- new
+} from "../controllers/doctorController.js"; // note path (adjust if your import path differs)
 import authDoctor from "../middlewares/authDoctor.js";
 
 const doctorRouter = express.Router();
 
 doctorRouter.get("/list", doctorList);
 doctorRouter.post("/login", loginDoctor);
+
 // protected endpoints:
 doctorRouter.get("/appointments", authDoctor, appointmentsDoctor);
 doctorRouter.post("/complete-appointment", authDoctor, appointmentComplete);
@@ -27,5 +29,12 @@ doctorRouter.post("/update-profile", authDoctor, updateDoctorProfile);
 
 // NEW: patients list (doctor-only)
 doctorRouter.get("/patients", authDoctor, doctorPatients);
+
+// NEW: appointments for a particular patient (doctor-only)
+doctorRouter.get(
+  "/patients/:userId/appointments",
+  authDoctor,
+  doctorPatientAppointments
+);
 
 export default doctorRouter;

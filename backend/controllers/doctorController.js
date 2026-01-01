@@ -49,7 +49,6 @@ const loginDoctor = async (req, res) => {
     const isMatch = await bycrypt.compare(password, doctor.password);
 
     if (isMatch) {
-      // include role so requireAuth/requireRole can work
       const token = jwt.sign(
         { id: doctor._id, role: "doctor" },
         process.env.JWT_SECRET
@@ -87,20 +86,18 @@ const appointmentsDoctor = async (req, res) => {
 
 /**
  * Returns list of patients this doctor has visited (doctor has >=1 completed appointment with patient)
- * Response: { success: true, patients: [{ userId, userData: {name,image,...}, lastVisited }] }
+ * Response: { success: true, patients: [{ userId, userData: {name,image,}, lastVisited }] }
  */
 const doctorPatients = async (req, res) => {
   try {
     const docId = req.body.docId || (req.user && req.user.id);
     if (!docId) return res.json({ success: false, message: "Missing docId" });
 
-    // Find all completed appointments for this doctor, newest first
     const appts = await appointmentModel
       .find({ docId: String(docId), isCompleted: true })
       .sort({ date: -1 })
       .lean();
 
-    // Build unique list by userId, preserving the most recent appointment info
     const map = new Map();
     for (const a of appts) {
       const uid = a.userId?.toString() || null;
@@ -119,6 +116,32 @@ const doctorPatients = async (req, res) => {
     res.json({ success: true, patients });
   } catch (error) {
     console.error("doctorPatients error:", error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * NEW:
+ * Return all appointments between this doctor (authenticated) and the given patient (userId)
+ * GET /api/doctor/patients/:userId/appointments
+ */
+const doctorPatientAppointments = async (req, res) => {
+  try {
+    const docId = req.user?.id || (req.body && req.body.docId);
+    const { userId } = req.params;
+
+    if (!docId) return res.json({ success: false, message: "Missing docId" });
+    if (!userId) return res.json({ success: false, message: "Missing userId" });
+
+    // find all appointments where docId matches AND userId matches
+    const appointments = await appointmentModel
+      .find({ docId: String(docId), userId: String(userId) })
+      .sort({ date: -1 })
+      .lean();
+
+    res.json({ success: true, appointments });
+  } catch (error) {
+    console.error("doctorPatientAppointments error:", error);
     res.json({ success: false, message: error.message });
   }
 };
@@ -173,12 +196,11 @@ const appointmentCancel = async (req, res) => {
       appointmentData &&
       appointmentData.docId?.toString() === String(docId)
     ) {
-      // Set cancelled flag
       await appointmentModel.findByIdAndUpdate(appointmentId, {
         cancelled: true,
       });
 
-      // Release booked slot in doctor's record if present
+      // release booked slot in doctor's record if present (best-effort)
       try {
         const dId = appointmentData.docId;
         const slotDate = appointmentData.slotDate;
@@ -201,7 +223,6 @@ const appointmentCancel = async (req, res) => {
           "Failed to release slot on cancellation:",
           releaseErr?.message || releaseErr
         );
-        // not fatal for cancellation itself
       }
 
       return res.json({ success: true, message: "Appointment Cancelled" });
@@ -293,10 +314,11 @@ export {
   doctorList,
   loginDoctor,
   appointmentsDoctor,
+  doctorPatients,
+  doctorPatientAppointments, // <-- NEW export
   appointmentCancel,
   appointmentComplete,
   doctorDashboard,
   doctorProfile,
   updateDoctorProfile,
-  doctorPatients, // <--- new export
 };
