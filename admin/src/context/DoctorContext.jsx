@@ -1,4 +1,5 @@
-import { createContext, useState } from "react";
+// admin/src/context/DoctorContext.jsx
+import { createContext, useState, useCallback } from "react";
 import axios from "axios";
 import { toast } from "react-toastify";
 
@@ -12,17 +13,23 @@ const DoctorContextProvider = (props) => {
   );
   const [appointments, setAppointments] = useState([]);
   const [dashData, setDashData] = useState(false);
-  const [profileData, setProfileData] = useState(false);
+  // initialize as an object so components that read nested fields won't crash
+  const [profileData, setProfileData] = useState({});
+
+  // NEW: patients state
+  const [patients, setPatients] = useState([]);
 
   const getAppointments = async () => {
     try {
       const { data } = await axios.get(
         backendUrl + "/api/doctor/appointments",
-        { headers: { dToken } }
+        {
+          headers: { dToken },
+        }
       );
       if (data.success) {
         setAppointments(data.appointments);
-        console.log(data.appointments);
+        console.log("appointments:", data.appointments);
       } else {
         toast.error(data.message);
       }
@@ -77,10 +84,9 @@ const DoctorContextProvider = (props) => {
       const { data } = await axios.get(backendUrl + "/api/doctor/dashboard", {
         headers: { dToken },
       });
-
       if (data.success) {
         setDashData(data.dashData);
-        console.log(data.dashData);
+        console.log("dashData:", data.dashData);
       } else {
         toast.error(data.message);
       }
@@ -90,20 +96,42 @@ const DoctorContextProvider = (props) => {
     }
   };
 
-  const getProfileData = async () => {
+  // make getProfileData stable so components depending on it don't retrigger on every render
+  const getProfileData = useCallback(async () => {
     try {
       const { data } = await axios.get(backendUrl + "/api/doctor/profile", {
         headers: { dToken },
       });
-      if (data.success) {
+      if (data.success && data.profileData) {
         setProfileData(data.profileData);
-        console.log(data.profileData);
+        console.log("profileData:", data.profileData);
+      } else {
+        // keep profileData as {} if no data
+        console.warn("getProfileData: no profileData returned");
       }
     } catch (error) {
       console.log(error);
       toast.error(error.message);
     }
-  };
+    // only re-create if backendUrl or dToken changes
+  }, [backendUrl, dToken]);
+
+  // NEW: get patients list
+  const getPatients = useCallback(async () => {
+    try {
+      const { data } = await axios.get(backendUrl + "/api/doctor/patients", {
+        headers: { dToken },
+      });
+      if (data.success) {
+        setPatients(data.patients || []);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      console.error("getPatients error:", error);
+      toast.error(error?.message || "Failed to fetch patients");
+    }
+  }, [backendUrl, dToken]);
 
   const value = {
     dToken,
@@ -120,6 +148,8 @@ const DoctorContextProvider = (props) => {
     profileData,
     setProfileData,
     getProfileData,
+    patients,
+    getPatients,
   };
 
   return (

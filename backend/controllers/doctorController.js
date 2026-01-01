@@ -1,4 +1,4 @@
-// controllers/doctorController.js
+// backend/controllers/doctorController.js
 import doctorModel from "../models/doctorModel.js";
 import bycrypt from "bcrypt";
 import jwt from "jsonwebtoken";
@@ -73,7 +73,6 @@ const appointmentsDoctor = async (req, res) => {
     const docId = req.body.docId || (req.user && req.user.id);
     if (!docId) return res.json({ success: false, message: "Missing docId" });
 
-    // return newest first
     const appointments = await appointmentModel
       .find({ docId })
       .sort({ date: -1 })
@@ -82,6 +81,44 @@ const appointmentsDoctor = async (req, res) => {
     res.json({ success: true, appointments });
   } catch (error) {
     console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Returns list of patients this doctor has visited (doctor has >=1 completed appointment with patient)
+ * Response: { success: true, patients: [{ userId, userData: {name,image,...}, lastVisited }] }
+ */
+const doctorPatients = async (req, res) => {
+  try {
+    const docId = req.body.docId || (req.user && req.user.id);
+    if (!docId) return res.json({ success: false, message: "Missing docId" });
+
+    // Find all completed appointments for this doctor, newest first
+    const appts = await appointmentModel
+      .find({ docId: String(docId), isCompleted: true })
+      .sort({ date: -1 })
+      .lean();
+
+    // Build unique list by userId, preserving the most recent appointment info
+    const map = new Map();
+    for (const a of appts) {
+      const uid = a.userId?.toString() || null;
+      if (!uid) continue;
+      if (!map.has(uid)) {
+        map.set(uid, {
+          userId: uid,
+          userData: a.userData || {},
+          lastVisited: a.date || a.slotDate || null,
+        });
+      }
+    }
+
+    const patients = Array.from(map.values());
+
+    res.json({ success: true, patients });
+  } catch (error) {
+    console.error("doctorPatients error:", error);
     res.json({ success: false, message: error.message });
   }
 };
@@ -121,8 +158,6 @@ const appointmentComplete = async (req, res) => {
 
 /**
  * Cancel appointment (doctor)
- * - sets cancelled: true
- * - releases booked slot from doctor's slots_booked map (if present)
  */
 const appointmentCancel = async (req, res) => {
   try {
@@ -190,11 +225,7 @@ const doctorDashboard = async (req, res) => {
     const docId = req.body.docId || (req.user && req.user.id);
     if (!docId) return res.json({ success: false, message: "Missing docId" });
 
-    // fetch newest appointments first
-    const appointments = await appointmentModel
-      .find({ docId })
-      .sort({ date: -1 })
-      .lean();
+    const appointments = await appointmentModel.find({ docId });
 
     let earnings = 0;
     appointments.forEach((item) => {
@@ -214,7 +245,7 @@ const doctorDashboard = async (req, res) => {
       earnings,
       appointments: appointments.length,
       patients: patients.length,
-      latestAppointments: appointments.slice(0, 5), // already newest-first
+      latestAppointments: appointments.slice().reverse().slice(0, 5),
     };
 
     res.json({ success: true, dashData });
@@ -267,4 +298,5 @@ export {
   doctorDashboard,
   doctorProfile,
   updateDoctorProfile,
+  doctorPatients, // <--- new export
 };
