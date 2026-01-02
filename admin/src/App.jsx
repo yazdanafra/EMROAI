@@ -1,3 +1,4 @@
+// admin/src/App.jsx
 import React, { useContext } from "react";
 import Login from "./pages/Login";
 import { ToastContainer } from "react-toastify";
@@ -16,6 +17,9 @@ import DoctorAppointments from "./pages/Doctor/DoctorAppointments";
 import DoctorProfile from "./pages/Doctor/DoctorProfile";
 import DoctorPatients from "./pages/Doctor/DoctorPatients.jsx";
 import DoctorPatientDetails from "./pages/Doctor/DoctorPatientDetails.jsx";
+import DoctorAppointmentDetails from "./pages/Doctor/DoctorAppointmentDetails.jsx";
+import PatientAttachmentsOverview from "./pages/Doctor/PatientAttachmentsOverview.jsx";
+import AppointmentAttachments from "./pages/Doctor/AppointmentAttachments.jsx";
 
 const App = () => {
   const { aToken } = useContext(AdminContext);
@@ -43,6 +47,18 @@ const App = () => {
           <Route
             path="/doctor-patient/:userId"
             element={<DoctorPatientDetails />}
+          />
+          <Route
+            path="/doctor-appointment/:id"
+            element={<DoctorAppointmentDetails />}
+          />
+          <Route
+            path="/doctor-patient/:userId/attachments"
+            element={<PatientAttachmentsOverview />}
+          />
+          <Route
+            path="/doctor-patient/:userId/attachments/:appointmentId"
+            element={<AppointmentAttachments />}
           />
         </Routes>
       </div>

@@ -1,4 +1,3 @@
-// Sidebar.jsx
 import React, { useContext } from "react";
 import { AdminContext } from "../context/AdminContext";
 import { NavLink } from "react-router-dom";
@@ -12,7 +11,8 @@ const Sidebar = () => {
   const { dToken } = useContext(DoctorContext);
 
   return (
-    <div className="min-h-screen bg-white border-r">
+    // make sidebar full viewport height and sticky so it stays aligned to top
+    <div className="h-screen sticky top-0 overflow-auto bg-white border-r">
       {aToken && (
         <ul className="text-[#515151] mt-5">
           <NavLink

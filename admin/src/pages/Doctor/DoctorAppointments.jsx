@@ -5,44 +5,27 @@ import { AppContext } from "../../context/AppContext";
 import { assets } from "../../assets/assets";
 import DoctorCompleteModal from "../../components/DoctorCompleteModal";
 
-/**
- * Attempts to compute a JS Date for an appointment.
- * Priority:
- * 1) If slotDate present -> combine slotDate + slotTime
- * 2) Else use appointment.date (createdAt / stored date)
- *
- * The function is defensive: it attempts a few parse strategies and
- * returns a Date object (or invalid Date if impossible).
- */
+/* getAppointmentDate unchanged (kept for brevity) */
 function getAppointmentDate(apt) {
-  // prefer slotDate + slotTime
   const { slotDate, slotTime, date } = apt || {};
-
-  // helper to try parse a string into Date (local)
   const tryParse = (s) => {
     if (!s) return null;
     const d = new Date(s);
     if (!isNaN(d)) return d;
-    // try replacing dashes with slashes (some browsers parse differently)
     const d2 = new Date(s.replace(/-/g, "/"));
     if (!isNaN(d2)) return d2;
     return null;
   };
 
   if (slotDate) {
-    // Build a combined string. Many formats like "2025-01-02" + "10:30" parse fine.
-    // If slotTime is missing, parse slotDate alone.
     const combined = slotTime ? `${slotDate} ${slotTime}` : `${slotDate}`;
     const parsed = tryParse(combined);
     if (parsed) return parsed;
 
-    // try common transformations: swap order if needed
-    // e.g., if slotDate is dd/mm/yyyy, try to parse by splitting
     const parts = String(slotDate)
       .split(/[-\/.]/)
       .map((p) => p.trim());
     if (parts.length === 3) {
-      // guess if it's dd/mm/yyyy -> convert to yyyy-mm-dd if first part > 31 then it's year already
       let iso = slotDate;
       if (parts[0].length === 4) {
         iso = `${parts[0]}-${parts[1]}-${parts[2]}`;
@@ -54,14 +37,12 @@ function getAppointmentDate(apt) {
     }
   }
 
-  // fallback to appointment.date
   if (date) {
     const parsed = tryParse(date);
     if (parsed) return parsed;
   }
 
-  // as a last resort, current time
-  return new Date(NaN); // invalid date to indicate unknown
+  return new Date(NaN);
 }
 
 const DoctorAppointments = () => {
@@ -73,6 +54,9 @@ const DoctorAppointments = () => {
   const [openModal, setOpenModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [cancellingId, setCancellingId] = useState(null); // track which row is being cancelled
+
+  // SEARCH state
+  const [searchTerm, setSearchTerm] = useState("");
 
   // pagination state
   const PAGE_SIZE = 10; // show 10 appointments per page
@@ -93,17 +77,14 @@ const DoctorAppointments = () => {
   // Sort appointments by scheduled datetime (newest first)
   const sortedAppointments = useMemo(() => {
     if (!Array.isArray(appointments)) return [];
-    // map to [appointment, timeMs] pairs for efficient sorting
     const mapped = appointments.map((a) => {
       const dt = getAppointmentDate(a);
       const timeMs = dt && !isNaN(dt.getTime()) ? dt.getTime() : -Infinity;
       return { a, timeMs };
     });
 
-    // sort by timeMs descending (newest first). If timeMs equals, keep original order
     mapped.sort((x, y) => {
       if (y.timeMs !== x.timeMs) return y.timeMs - x.timeMs;
-      // fallback: use appointment.created/updated time if present
       const ta = new Date(x.a.date || x.a.createdAt || 0).getTime() || 0;
       const tb = new Date(y.a.date || y.a.createdAt || 0).getTime() || 0;
       return tb - ta;
@@ -112,14 +93,49 @@ const DoctorAppointments = () => {
     return mapped.map((m) => m.a);
   }, [appointments]);
 
-  // ensure currentPage is valid if appointments shrink
+  // Filtered by searchTerm (patient name, slotDate, slotTime, id, amount)
+  const filteredAppointments = useMemo(() => {
+    const q = (searchTerm || "").trim().toLowerCase();
+    if (!q) return sortedAppointments;
+
+    return sortedAppointments.filter((it) => {
+      // patient name
+      const name = String(it.userData?.name || "").toLowerCase();
+      if (name.includes(q)) return true;
+
+      // slot date formatted
+      const slotDateStr = it.slotDate
+        ? String(slotDateFormat(it.slotDate)).toLowerCase()
+        : "";
+      if (slotDateStr.includes(q)) return true;
+
+      // slot time
+      const slotTimeStr = String(it.slotTime || "").toLowerCase();
+      if (slotTimeStr.includes(q)) return true;
+
+      // appointment id
+      if ((it._id || "").toLowerCase().includes(q)) return true;
+
+      // amount
+      if (
+        String(it.amount || "")
+          .toLowerCase()
+          .includes(q)
+      )
+        return true;
+
+      return false;
+    });
+  }, [sortedAppointments, searchTerm, slotDateFormat]);
+
+  // ensure currentPage is valid if filteredAppointments shrink
   useEffect(() => {
     const totalPages = Math.max(
       1,
-      Math.ceil((sortedAppointments?.length || 0) / PAGE_SIZE)
+      Math.ceil((filteredAppointments?.length || 0) / PAGE_SIZE)
     );
     if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [sortedAppointments, currentPage]);
+  }, [filteredAppointments, currentPage]);
 
   // When the user clicks the tick icon we'll open the modal
   const onOpenCompleteModal = (appointment) => {
@@ -129,7 +145,6 @@ const DoctorAppointments = () => {
 
   // Called after modal saves — refresh list and close modal
   const handleSaved = (updatedAppointment) => {
-    // refresh appointments from server
     getAppointments();
     setOpenModal(false);
     setSelectedAppointment(null);
@@ -149,20 +164,45 @@ const DoctorAppointments = () => {
     }
   };
 
-  // Pagination helpers (use sortedAppointments)
-  const totalAppointments = sortedAppointments?.length || 0;
+  // Pagination helpers (use filteredAppointments)
+  const totalAppointments = filteredAppointments?.length || 0;
   const totalPages = Math.max(1, Math.ceil(totalAppointments / PAGE_SIZE));
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const endIndex = Math.min(startIndex + PAGE_SIZE, totalAppointments);
 
-  const visibleAppointments = (sortedAppointments || []).slice(
+  const visibleAppointments = (filteredAppointments || []).slice(
     startIndex,
     endIndex
   );
 
   return (
     <div className="w-full max-w-6xl m-5">
-      <p className="mb-3 text-lg font-medium">All Appointments</p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-lg font-medium">All Appointments</p>
+
+        {/* Search input */}
+        <div className="flex items-center gap-2">
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1); // reset to first page on search
+            }}
+            placeholder="Search by patient, date, time, id or amount..."
+            className="px-3 py-2 border rounded text-sm"
+          />
+          <button
+            onClick={() => {
+              setSearchTerm("");
+              setCurrentPage(1);
+            }}
+            className="px-3 py-2 border rounded text-sm"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
 
       <div className="bg-white border rounded text-sm">
         {/* header */}
@@ -184,7 +224,6 @@ const DoctorAppointments = () => {
             </div>
           ) : (
             visibleAppointments.map((item, idx) => {
-              // compute global index for numbering according to sorted list
               const globalIndex = startIndex + idx + 1;
               const isCancelled = !!item.cancelled;
               const isCompleted = !!item.isCompleted;
@@ -231,7 +270,6 @@ const DoctorAppointments = () => {
                     </p>
                   ) : (
                     <div className="flex">
-                      {/* Cancel icon: disabled while cancelling */}
                       <img
                         onClick={() => {
                           if (isBusy) return;
@@ -244,8 +282,6 @@ const DoctorAppointments = () => {
                         alt="cancel"
                         title={isBusy ? "Cancelling..." : "Cancel appointment"}
                       />
-
-                      {/* Complete icon: disabled while cancelling */}
                       <img
                         onClick={() => {
                           if (isBusy) return;
@@ -286,7 +322,6 @@ const DoctorAppointments = () => {
               Prev
             </button>
 
-            {/* page numbers: render all pages (for modest counts). */}
             <div className="hidden sm:flex items-center gap-1">
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                 <button
