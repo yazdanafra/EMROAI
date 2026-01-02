@@ -1,11 +1,10 @@
 // admin/src/pages/Doctor/DoctorAppointmentDetails.jsx
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "react-toastify";
 import { DoctorContext } from "../../context/DoctorContext";
 import { AppContext } from "../../context/AppContext";
-import DoctorCompleteModal from "../../components/DoctorCompleteModal"; // optional reuse if needed
 import { assets } from "../../assets/assets";
 
 const DoctorAppointmentDetails = () => {
@@ -17,6 +16,10 @@ const DoctorAppointmentDetails = () => {
   const [appointment, setAppointment] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
+
+  // upload state
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     if (!id) return;
@@ -47,9 +50,7 @@ const DoctorAppointmentDetails = () => {
           "Failed to fetch appointment";
         setErr(msg);
         toast.error(msg);
-        // if 401, redirect to login (optional)
         if (error?.response?.status === 401) {
-          // token invalid/expired: log out or navigate to login — here we navigate back
           navigate(-1);
         }
       } finally {
@@ -58,6 +59,84 @@ const DoctorAppointmentDetails = () => {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, dToken]);
+
+  const clinical = appointment?.clinical || {};
+  const attachments = clinical.attachments || [];
+
+  // open input
+  const openFile = () => {
+    if (fileRef.current) fileRef.current.click();
+  };
+
+  const onFile = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    for (const f of files) {
+      await upload(f);
+    }
+    e.target.value = "";
+  };
+
+  const upload = async (file) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const { data } = await axios.post(
+        `${backendUrl}/api/records/appointments/${id}/attachments`,
+        form,
+        {
+          headers: { Authorization: `Bearer ${dToken}` },
+        }
+      );
+
+      if (data.success) {
+        const fileObj = data.file || data;
+        const normalized = {
+          url:
+            fileObj.url ||
+            fileObj.secure_url ||
+            fileObj.path ||
+            fileObj.file ||
+            "",
+          filename:
+            fileObj.filename ||
+            fileObj.original_filename ||
+            fileObj.name ||
+            file.name,
+          type:
+            fileObj.type ||
+            fileObj.resource_type ||
+            fileObj.format ||
+            file.type ||
+            undefined,
+          uploadedBy: fileObj.uploadedBy || undefined,
+          uploadedAt: fileObj.uploadedAt
+            ? new Date(fileObj.uploadedAt)
+            : new Date(),
+        };
+
+        // append to appointment state so the UI updates
+        setAppointment((prev) => {
+          if (!prev) return prev;
+          const clinical = { ...(prev.clinical || {}) };
+          clinical.attachments = [...(clinical.attachments || []), normalized];
+          return { ...prev, clinical };
+        });
+
+        toast.success("Attachment uploaded");
+      } else {
+        throw new Error(data.message || "Upload failed");
+      }
+    } catch (err) {
+      console.error("upload error", err);
+      const msg = err?.response?.data?.message || err.message || String(err);
+      toast.error("Upload failed: " + msg);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -89,11 +168,9 @@ const DoctorAppointmentDetails = () => {
     );
   }
 
-  const clinical = appointment.clinical || {};
   const diagnosis = clinical.diagnosis || {};
   const prescriptions = clinical.prescriptions || [];
   const vitals = clinical.vitals || {};
-  const attachments = clinical.attachments || [];
 
   return (
     <div className="m-5 max-w-5xl">
@@ -195,19 +272,19 @@ const DoctorAppointmentDetails = () => {
         </div>
       </div>
 
-      {/* Bottom half: attachments with Analyze button */}
+      {/* Bottom half: attachments with Analyze and Add button */}
       <div className="bg-white border rounded p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-medium">Attachments</h3>
-          <button
-            // placeholder for future AI analyze feature
-            onClick={() => {
-              toast.info("Analyze Image: feature not implemented yet");
-            }}
-            className="px-3 py-1 border rounded text-sm hover:bg-gray-100"
-          >
-            Analyze Image
-          </button>
+          <div>
+            <button
+              onClick={openFile}
+              disabled={uploading}
+              className="px-3 py-1 border rounded text-sm hover:bg-gray-100"
+            >
+              {uploading ? "Uploading..." : "Add attachment"}
+            </button>
+          </div>
         </div>
 
         {attachments.length === 0 ? (
@@ -224,7 +301,7 @@ const DoctorAppointmentDetails = () => {
                     <img
                       src={a.url}
                       alt={a.filename || `attachment-${i}`}
-                      className="max-h-full"
+                      className="max-h-full max-w-full object-contain"
                     />
                   ) : (
                     <div className="p-4 text-sm text-gray-600">
@@ -256,8 +333,30 @@ const DoctorAppointmentDetails = () => {
                 </div>
               </div>
             ))}
+
+            {/* plus tile (also visible when attachments exist) */}
+            <div
+              className="flex flex-col items-center justify-center border rounded p-4 cursor-pointer hover:shadow"
+              onClick={openFile}
+              role="button"
+              aria-label="Add attachment"
+            >
+              <img src={assets.plus_icon100} alt="Add" className="w-16 h-16" />
+              <div className="mt-2 text-sm font-medium text-gray-700">Add</div>
+              <div className="text-xs text-gray-500">
+                {uploading ? "Uploading..." : "Click to add file"}
+              </div>
+            </div>
           </div>
         )}
+
+        <input
+          ref={fileRef}
+          type="file"
+          className="hidden"
+          multiple
+          onChange={onFile}
+        />
       </div>
     </div>
   );

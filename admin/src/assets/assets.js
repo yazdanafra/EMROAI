@@ -14,6 +14,7 @@ import patients_icon from "./patients_icon.svg";
 import doctor_prof from "./doctor_profile_pic.png";
 import folder_icon500 from "./icons8-folder-500.svg";
 import folder_icon150 from "./icons8-folder-150.svg";
+import plus_icon100 from "./icons8-plus-100.svg";
 
 export const assets = {
   add_icon,
@@ -32,4 +33,5 @@ export const assets = {
   doctor_prof,
   folder_icon150,
   folder_icon500,
+  plus_icon100,
 };
