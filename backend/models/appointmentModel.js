@@ -1,4 +1,4 @@
-// models/appointmentModel.js
+// backend/models/appointmentModel.js  (only show the AttachmentSchema change)
 import mongoose from "mongoose";
 
 const { Schema } = mongoose;
@@ -10,6 +10,7 @@ const AttachmentSchema = new Schema(
     type: { type: String }, // mime type
     uploadedBy: { type: String }, // store uploader id or name
     uploadedAt: { type: Date, default: Date.now },
+    fileId: { type: mongoose.Schema.Types.ObjectId }, // GridFS file id (optional)
   },
   { _id: false }
 );

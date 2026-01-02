@@ -8,6 +8,7 @@ import adminRouter from "./routes/adminRoute.js";
 import doctorRouter from "./routes/doctorRoute.js";
 import userRouter from "./routes/userRoute.js";
 import medicalRecordRouter from "./routes/medicalRecordRoutes.js"; // <= new
+import filesRouter from "./routes/filesRoute.js";
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -23,6 +24,7 @@ app.use(cors());
 app.use("/api/admin", adminRouter);
 app.use("/api/doctor", doctorRouter);
 app.use("/api/user", userRouter);
+app.use("/api/files", filesRouter);
 
 // mount records routes
 app.use("/api/records", medicalRecordRouter);

@@ -299,10 +299,36 @@ const doctorProfile = async (req, res) => {
 const updateDoctorProfile = async (req, res) => {
   try {
     const { docId, fees, address, available } = req.body;
+    const imageFile = req.file;
 
+    // Update basic fields first
     await doctorModel.findByIdAndUpdate(docId, { fees, address, available });
 
-    res.json({ success: true, message: "Profile Updated" });
+    // If doctor uploaded a new image, save it and persist absolute URL
+    if (imageFile) {
+      try {
+        const saved = await saveFileToGridFS(
+          imageFile.path,
+          imageFile.originalname,
+          imageFile.mimetype,
+          { uploadedBy: docId }
+        );
+
+        const base =
+          process.env.BACKEND_URL && process.env.BACKEND_URL.trim().length
+            ? process.env.BACKEND_URL.replace(/\/$/, "")
+            : `${req.protocol}://${req.get("host")}`;
+        const imageURL = `${base}${saved.streamUrl}`;
+
+        await doctorModel.findByIdAndUpdate(docId, { image: imageURL });
+      } catch (err) {
+        console.error("doctor profile image upload error", err);
+        return res.json({ success: false, message: "Image upload failed" });
+      }
+    }
+
+    const updated = await doctorModel.findById(docId).select("-password");
+    res.json({ success: true, message: "Profile Updated", profile: updated });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });

@@ -1,11 +1,12 @@
 import validator from "validator";
 import bcrypt from "bcrypt";
-import { v2 as cloudinary } from "cloudinary";
 import doctorModel from "../models/doctorModel.js";
 import jwt from "jsonwebtoken";
 import appointmentModel from "../models/appointmentModel.js";
 import userModel from "../models/userModel.js";
+import { saveFileToGridFS } from "../config/gridfs.js";
 
+// API for adding doctor
 // API for adding doctor
 const addDoctor = async (req, res) => {
   try {
@@ -57,11 +58,28 @@ const addDoctor = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // upload image to cloudinary
-    const imageUpload = await cloudinary.uploader.upload(imageFile.path, {
-      resource_type: "image",
-    });
-    const imageUrl = imageUpload.secure_url;
+    let imageUrl;
+    // upload image to GridFS (if provided)
+    if (imageFile) {
+      try {
+        const saved = await saveFileToGridFS(
+          imageFile.path,
+          imageFile.originalname,
+          imageFile.mimetype,
+          { uploadedBy: "admin-addDoctor" }
+        );
+
+        // Build absolute URL for client (fallback to request host when BACKEND_URL is not set)
+        const base =
+          process.env.BACKEND_URL && process.env.BACKEND_URL.trim().length
+            ? process.env.BACKEND_URL.replace(/\/$/, "")
+            : `${req.protocol}://${req.get("host")}`;
+        imageUrl = `${base}${saved.streamUrl}`;
+      } catch (err) {
+        console.error("doctor image upload error", err);
+        return res.json({ success: false, message: "Image upload failed" });
+      }
+    }
 
     const doctorData = {
       name,
@@ -146,13 +164,14 @@ const appointmentCancel = async (req, res) => {
 
     const doctorData = await doctorModel.findById(docId);
 
-    let slots_booked = doctorData.slots_booked;
+    let slots_booked = doctorData.slots_booked || {};
 
-    slots_booked[slotDate] = slots_booked[slotDate].filter(
-      (e) => e !== slotTime
-    );
-
-    await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    if (slots_booked[slotDate]) {
+      slots_booked[slotDate] = slots_booked[slotDate].filter(
+        (e) => e !== slotTime
+      );
+      await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    }
 
     res.json({ success: true, message: "Appointment Cancelled" });
   } catch (error) {

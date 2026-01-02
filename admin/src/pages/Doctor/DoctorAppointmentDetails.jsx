@@ -276,15 +276,6 @@ const DoctorAppointmentDetails = () => {
       <div className="bg-white border rounded p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-medium">Attachments</h3>
-          <div>
-            <button
-              onClick={openFile}
-              disabled={uploading}
-              className="px-3 py-1 border rounded text-sm hover:bg-gray-100"
-            >
-              {uploading ? "Uploading..." : "Add attachment"}
-            </button>
-          </div>
         </div>
 
         {attachments.length === 0 ? (
@@ -310,7 +301,7 @@ const DoctorAppointmentDetails = () => {
                   )}
                 </div>
                 <div className="p-3 flex items-center justify-between">
-                  <div className="text-sm text-gray-700 break-words max-w-[70%]">
+                  <div className="text-sm text-gray-700 wrap-break-word max-w-[70%]">
                     {a.filename || a.url}
                   </div>
                   <div className="flex gap-2">

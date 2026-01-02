@@ -248,7 +248,7 @@ const AppointmentAttachments = () => {
                   </div>
 
                   <div className="p-3 flex items-center justify-between">
-                    <div className="text-sm text-gray-700 break-words max-w-[60%]">
+                    <div className="text-sm text-gray-700 wrap-break-word max-w-[60%]">
                       {att.filename || att.url}
                     </div>
 

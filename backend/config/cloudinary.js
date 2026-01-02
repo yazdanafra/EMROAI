@@ -10,13 +10,11 @@ export default function connectCloudinary() {
   const CLOUD_NAME =
     process.env.CLOUDINARY_NAME || process.env.CLOUDINARY_CLOUD_NAME;
   const API_KEY = process.env.CLOUDINARY_API_KEY || process.env.CLOUDINARY_KEY;
-  // accept either CLOUDINARY_API_SECRET or CLOUDINARY_SECRET_KEY for compatibility
   const API_SECRET =
     process.env.CLOUDINARY_API_SECRET ||
     process.env.CLOUDINARY_SECRET_KEY ||
     process.env.CLOUDINARY_SECRET;
 
-  // Log presence (not values) so you can see what's available
   console.info("Cloudinary env presence:", {
     cloud_name: !!CLOUD_NAME,
     api_key: !!API_KEY,
@@ -40,26 +38,49 @@ export default function connectCloudinary() {
 
 /**
  * Upload a local file to Cloudinary and remove the temp file afterwards.
- * Returns the Cloudinary upload result object (promise).
+ * - options: passed to cloudinary.uploader.upload (we spread user options)
+ * - timeoutMs: optional number to abort upload after N ms (default 60s)
  */
-export const uploadToCloudinary = (filePath, options = {}) =>
-  new Promise((resolve, reject) => {
-    const opts = { resource_type: "auto", ...options }; // default to auto
-    cloudinary.uploader.upload(filePath, opts, (err, result) => {
-      // remove temp file (best-effort)
-      try {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      } catch (e) {
-        console.warn("Failed to remove temp file:", e?.message || e);
-      }
+export const uploadToCloudinary = async (
+  filePath,
+  options = {},
+  timeoutMs = 60000
+) => {
+  // build options correctly
+  const opts = { resource_type: "auto", ...options };
 
-      if (err) {
-        // surface the exact error (so your terminal shows what's wrong)
-        console.error("cloudinary upload error:", err?.message || err, {
-          http_code: err?.http_code,
-        });
-        return reject(err);
-      }
-      resolve(result);
+  // helper to remove temp file (best-effort)
+  const removeTemp = () => {
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (e) {
+      console.warn("Failed to remove temp file:", e?.message || e);
+    }
+  };
+
+  // Cloudinary callback-based API can return promise if no callback is supplied.
+  const uploadPromise = cloudinary.uploader.upload(filePath, opts);
+
+  // Optional timeout wrapper
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(
+      () => reject(new Error("Cloudinary upload timed out")),
+      timeoutMs
+    )
+  );
+
+  try {
+    // race upload vs timeout
+    const result = await Promise.race([uploadPromise, timeoutPromise]);
+    return result;
+  } catch (err) {
+    // log examplar details for debugging (http_code often present)
+    console.error("cloudinary upload error:", err?.message || err, {
+      http_code: err?.http_code,
     });
-  });
+    throw err;
+  } finally {
+    // always try to remove temp file
+    removeTemp();
+  }
+};

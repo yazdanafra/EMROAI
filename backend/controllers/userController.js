@@ -2,7 +2,7 @@ import validator from "validator";
 import bycrypt from "bcrypt";
 import userModel from "../models/userModel.js";
 import jwt from "jsonwebtoken";
-import { v2 as cloudinary } from "cloudinary";
+import { saveFileToGridFS } from "../config/gridfs.js";
 import doctorModel from "../models/doctorModel.js";
 import appointmentModel from "../models/appointmentModel.js";
 
@@ -90,7 +90,6 @@ const getProfile = async (req, res) => {
   }
 };
 
-// API to update user profile
 const updateProfile = async (req, res) => {
   try {
     const { userId, name, phone, address, dob, gender } = req.body;
@@ -109,16 +108,31 @@ const updateProfile = async (req, res) => {
     });
 
     if (imageFile) {
-      // upload image to cloudinary
-      const imageUpload = await cloudinary.uploader.upload(imageFile.path, {
-        resource_type: "image",
-      });
-      const imageURL = imageUpload.secure_url;
+      // upload image to GridFS
+      try {
+        const saved = await saveFileToGridFS(
+          imageFile.path,
+          imageFile.originalname,
+          imageFile.mimetype,
+          { uploadedBy: userId }
+        );
 
-      await userModel.findByIdAndUpdate(userId, { image: imageURL });
+        // Build absolute URL for client (fallback to request host when BACKEND_URL is not set)
+        const base =
+          process.env.BACKEND_URL && process.env.BACKEND_URL.trim().length
+            ? process.env.BACKEND_URL.replace(/\/$/, "")
+            : `${req.protocol}://${req.get("host")}`;
+        const imageURL = `${base}${saved.streamUrl}`;
+
+        await userModel.findByIdAndUpdate(userId, { image: imageURL });
+      } catch (err) {
+        console.error("profile image upload error", err);
+        return res.json({ success: false, message: "Image upload failed" });
+      }
     }
 
-    res.json({ success: true, message: "Profile Updated" });
+    const updatedUser = await userModel.findById(userId).select("-password");
+    res.json({ success: true, message: "Profile Updated", user: updatedUser });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });
@@ -136,7 +150,7 @@ const bookAppointment = async (req, res) => {
       return res.json({ success: false, message: "Doctor not available" });
     }
 
-    let slots_booked = docData.slots_booked;
+    let slots_booked = docData.slots_booked || {};
 
     // checking for slot availability
     if (slots_booked[slotDate]) {
@@ -213,13 +227,14 @@ const cancelAppointment = async (req, res) => {
 
     const doctorData = await doctorModel.findById(docId);
 
-    let slots_booked = doctorData.slots_booked;
+    let slots_booked = doctorData.slots_booked || {};
 
-    slots_booked[slotDate] = slots_booked[slotDate].filter(
-      (e) => e !== slotTime
-    );
-
-    await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    if (slots_booked[slotDate]) {
+      slots_booked[slotDate] = slots_booked[slotDate].filter(
+        (e) => e !== slotTime
+      );
+      await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    }
 
     res.json({ success: true, message: "Appointment Cancelled" });
   } catch (error) {
