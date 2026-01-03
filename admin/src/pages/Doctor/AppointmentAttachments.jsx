@@ -1,6 +1,5 @@
-// admin/src/pages/Doctor/AppointmentAttachments.jsx
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom"; // keep Link import
 import axios from "axios";
 import { DoctorContext } from "../../context/DoctorContext";
 import { AppContext } from "../../context/AppContext";
@@ -28,7 +27,6 @@ const AppointmentAttachments = () => {
     const fetch = async () => {
       setLoading(true);
       try {
-        // use records endpoint which requires Authorization Bearer header
         const { data } = await axios.get(
           `${backendUrl}/api/records/appointments/${appointmentId}`,
           {
@@ -81,11 +79,9 @@ const AppointmentAttachments = () => {
   const onFilesSelected = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    // upload one-by-one (you can change to parallel if desired)
     for (const f of files) {
       await uploadFile(f);
     }
-    // clear input to allow selecting same file again later
     e.target.value = "";
   };
 
@@ -103,21 +99,18 @@ const AppointmentAttachments = () => {
         {
           headers: {
             Authorization: `Bearer ${dToken}`,
-            // let browser set Content-Type (multipart/form-data + boundary)
           },
         }
       );
 
       if (resp?.data?.success) {
-        // backend expected to return the saved file object in resp.data.file
         const fileObj =
           resp.data.file ||
           resp.data.savedFile ||
           resp.data.result ||
           resp.data.uploaded ||
-          resp.data; // fallback
+          resp.data;
 
-        // normalize returned file object into attachment shape used by UI
         const normalized = {
           url:
             fileObj.url ||
@@ -140,12 +133,11 @@ const AppointmentAttachments = () => {
           uploadedAt: fileObj.uploadedAt
             ? new Date(fileObj.uploadedAt)
             : new Date(),
+          fileId: fileObj.fileId || fileObj._id || fileObj.id,
         };
 
-        // append to UI list
         setAttachments((prev) => [...prev, normalized]);
 
-        // if appointment state exists, update it too so header count updates
         setAppointment((prev) => {
           if (!prev) return prev;
           const clinical = { ...(prev.clinical || {}) };
@@ -212,7 +204,6 @@ const AppointmentAttachments = () => {
         ) : filteredAttachments.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
             No attachments for this appointment.
-            {/* still show + tile so doctor can add new */}
             <div className="mt-4 flex justify-center">
               <button
                 onClick={openFilePicker}
@@ -228,6 +219,8 @@ const AppointmentAttachments = () => {
             {filteredAttachments.map((att, i) => {
               const isImage =
                 att.type && att.type.startsWith && att.type.startsWith("image");
+              const fileId = att.fileId || att._id || att.id || null;
+              const apptId = appointment?._id || appointmentId;
               return (
                 <div
                   key={i}
@@ -248,19 +241,26 @@ const AppointmentAttachments = () => {
                   </div>
 
                   <div className="p-3 flex items-center justify-between">
-                    <div className="text-sm text-gray-700 wrap-break-word max-w-[60%]">
+                    <div className="text-sm text-gray-700 break-words max-w-[60%]">
                       {att.filename || att.url}
                     </div>
 
                     <div className="flex gap-2">
-                      <a
-                        href={att.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-2 py-1 border rounded text-xs hover:bg-gray-100"
-                      >
-                        Open
-                      </a>
+                      {fileId ? (
+                        <Link
+                          to={`/doctor/attachment/${apptId}/${fileId}`}
+                          className="px-2 py-1 border rounded text-xs hover:bg-gray-100"
+                        >
+                          Open
+                        </Link>
+                      ) : (
+                        <button
+                          disabled
+                          className="px-2 py-1 border rounded text-xs opacity-50 cursor-not-allowed"
+                        >
+                          Open
+                        </button>
+                      )}
                       <a
                         href={att.url}
                         download
@@ -290,7 +290,6 @@ const AppointmentAttachments = () => {
           </div>
         )}
 
-        {/* hidden file input */}
         <input
           ref={fileInputRef}
           type="file"

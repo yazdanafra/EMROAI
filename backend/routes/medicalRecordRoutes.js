@@ -1,5 +1,6 @@
 // backend/routes/medicalRecordRoutes.js
 import express from "express";
+import mongoose from "mongoose";
 import {
   finishAppointment,
   getPatientRecords,
@@ -63,6 +64,8 @@ router.post(
         uploadedBy: req.user?.id,
         uploadedAt: new Date(),
         fileId: saved.fileId || undefined,
+        doctorNotes: "", // new fields default
+        aiAnalysis: {},
       };
 
       // Try to push the attachment into appointment.clinical.attachments.
@@ -96,6 +99,112 @@ router.post(
       });
     } catch (error) {
       console.error("attachment upload error", error);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+);
+
+/**
+ * PATCH doctor notes for a single attachment
+ * Endpoint: PATCH /appointments/:id/attachments/:fileId/doctor-notes
+ * Body: { doctorNotes: "..." }
+ * Role: doctor
+ */
+router.patch(
+  "/appointments/:id/attachments/:fileId/doctor-notes",
+  requireAuth,
+  requireRole("doctor"),
+  async (req, res) => {
+    try {
+      const { id, fileId } = req.params;
+      const { doctorNotes } = req.body;
+      if (typeof doctorNotes !== "string") {
+        return res
+          .status(400)
+          .json({ success: false, message: "doctorNotes required" });
+      }
+
+      const appt = await Appointment.findById(id);
+      if (!appt)
+        return res
+          .status(404)
+          .json({ success: false, message: "Appointment not found" });
+
+      const attachments = appt.clinical?.attachments || [];
+      const idx = attachments.findIndex(
+        (a) =>
+          String(a.fileId) === String(fileId) ||
+          String(a._id) === String(fileId)
+      );
+      if (idx === -1) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Attachment not found" });
+      }
+
+      const key = `clinical.attachments.${idx}.doctorNotes`;
+      const updated = await Appointment.findByIdAndUpdate(
+        id,
+        { $set: { [key]: doctorNotes } },
+        { new: true }
+      ).lean();
+
+      return res.json({ success: true, appointment: updated });
+    } catch (err) {
+      console.error("update doctor notes error:", err);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+);
+
+/**
+ * PATCH save AI analysis result for a single attachment
+ * Endpoint: PATCH /appointments/:id/attachments/:fileId/ai
+ * Body: { aiAnalysis: {...} }
+ * Role: doctor (or admin)
+ */
+router.patch(
+  "/appointments/:id/attachments/:fileId/ai",
+  requireAuth,
+  requireRole("doctor"),
+  async (req, res) => {
+    try {
+      const { id, fileId } = req.params;
+      const { aiAnalysis } = req.body;
+      if (!aiAnalysis) {
+        return res
+          .status(400)
+          .json({ success: false, message: "aiAnalysis required" });
+      }
+
+      const appt = await Appointment.findById(id);
+      if (!appt)
+        return res
+          .status(404)
+          .json({ success: false, message: "Appointment not found" });
+
+      const attachments = appt.clinical?.attachments || [];
+      const idx = attachments.findIndex(
+        (a) =>
+          String(a.fileId) === String(fileId) ||
+          String(a._id) === String(fileId)
+      );
+      if (idx === -1) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Attachment not found" });
+      }
+
+      const key = `clinical.attachments.${idx}.aiAnalysis`;
+      const updated = await Appointment.findByIdAndUpdate(
+        id,
+        { $set: { [key]: aiAnalysis } },
+        { new: true }
+      ).lean();
+
+      return res.json({ success: true, appointment: updated });
+    } catch (err) {
+      console.error("save aiAnalysis error:", err);
       return res.status(500).json({ success: false, message: "Server error" });
     }
   }

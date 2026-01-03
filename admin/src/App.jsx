@@ -20,6 +20,7 @@ import DoctorPatientDetails from "./pages/Doctor/DoctorPatientDetails.jsx";
 import DoctorAppointmentDetails from "./pages/Doctor/DoctorAppointmentDetails.jsx";
 import PatientAttachmentsOverview from "./pages/Doctor/PatientAttachmentsOverview.jsx";
 import AppointmentAttachments from "./pages/Doctor/AppointmentAttachments.jsx";
+import AttachmentAnalysis from "./pages/Doctor/AttachmentAnalysis.jsx";
 
 const App = () => {
   const { aToken } = useContext(AdminContext);
@@ -59,6 +60,10 @@ const App = () => {
           <Route
             path="/doctor-patient/:userId/attachments/:appointmentId"
             element={<AppointmentAttachments />}
+          />
+          <Route
+            path="/doctor/attachment/:appointmentId/:fileId"
+            element={<AttachmentAnalysis />}
           />
         </Routes>
       </div>

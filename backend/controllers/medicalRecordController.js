@@ -1,4 +1,3 @@
-// controllers/medicalRecordController.js
 import Appointment from "../models/appointmentModel.js";
 
 /**
@@ -23,7 +22,9 @@ function tryParseMaybeString(val) {
 }
 
 /**
- * Normalize attachments into array of objects: { url, filename, type, uploadedBy, uploadedAt }
+ * Normalize attachments into array of objects: { url, filename, type, uploadedBy, uploadedAt, fileId, meta? }
+ * - preserves common id fields (fileId, _id, id, public_id, file_id)
+ * - keeps unknown extra fields in `meta` for debugging if present
  */
 function normalizeAttachments(raw, uploaderId) {
   let attachments = tryParseMaybeString(raw);
@@ -39,6 +40,7 @@ function normalizeAttachments(raw, uploaderId) {
   const normalized = attachments
     .map((a) => {
       if (!a) return null;
+
       if (typeof a === "string") {
         // treat string as URL
         return {
@@ -47,16 +49,68 @@ function normalizeAttachments(raw, uploaderId) {
           type: undefined,
           uploadedBy: uploaderId,
           uploadedAt: new Date(),
+          fileId: undefined,
         };
       }
-      // If already object, map known fields
-      return {
-        url: a.url || a.path || a.file || null,
-        filename: a.filename || a.name || a.fileName || undefined,
-        type: a.type || a.mimeType || a.contentType || undefined,
-        uploadedBy: a.uploadedBy || uploaderId || undefined,
-        uploadedAt: a.uploadedAt ? new Date(a.uploadedAt) : new Date(),
+
+      // If already object, map known fields but preserve a file id if present
+      const url = a.url || a.path || a.file || null;
+      const filename =
+        a.filename || a.name || a.fileName || a.original_filename || undefined;
+      const type =
+        a.type ||
+        a.mimeType ||
+        a.resource_type ||
+        a.format ||
+        a.contentType ||
+        undefined;
+      const uploadedBy = a.uploadedBy || uploaderId || undefined;
+      const uploadedAt = a.uploadedAt ? new Date(a.uploadedAt) : new Date();
+
+      // preserve any identifier we know about
+      const fileId =
+        a.fileId || a._id || a.id || a.public_id || a.file_id || undefined;
+
+      // keep any unexpected fields in meta (optional)
+      const meta = {};
+      for (const k of Object.keys(a)) {
+        if (
+          ![
+            "url",
+            "path",
+            "file",
+            "filename",
+            "name",
+            "fileName",
+            "original_filename",
+            "type",
+            "mimeType",
+            "resource_type",
+            "format",
+            "contentType",
+            "uploadedBy",
+            "uploadedAt",
+            "fileId",
+            "_id",
+            "id",
+            "public_id",
+            "file_id",
+          ].includes(k)
+        ) {
+          meta[k] = a[k];
+        }
+      }
+
+      const res = {
+        url,
+        filename,
+        type,
+        uploadedBy,
+        uploadedAt,
+        fileId,
       };
+      if (Object.keys(meta).length) res.meta = meta;
+      return res;
     })
     .filter((x) => x && x.url); // only keep entries that have a url
 
@@ -145,7 +199,7 @@ export const finishAppointment = async (req, res) => {
     let vitals = tryParseMaybeString(rawVitals);
     if (!vitals || typeof vitals !== "object") vitals = {};
 
-    // parse/normalize attachments to object array
+    // parse/normalize attachments to object array (preserves fileId if provided)
     const attachments = normalizeAttachments(rawAttachments, req.user?.id);
 
     // assign clinical data safely

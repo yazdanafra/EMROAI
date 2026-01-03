@@ -11,6 +11,11 @@ const AttachmentSchema = new Schema(
     uploadedBy: { type: String }, // store uploader id or name
     uploadedAt: { type: Date, default: Date.now },
     fileId: { type: mongoose.Schema.Types.ObjectId }, // GridFS file id (optional)
+
+    // NEW fields:
+    doctorNotes: { type: String, default: "" }, // editable by doctor
+    // aiAnalysis can hold structured AI output (object), e.g. { summary: "...", findings: [...], score: ... }
+    aiAnalysis: { type: Schema.Types.Mixed, default: {} },
   },
   { _id: false }
 );
