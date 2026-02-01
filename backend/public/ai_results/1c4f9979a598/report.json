@@ -1,0 +1,225 @@
+{
+  "generated_at": "2026-02-01 05:09:19",
+  "input_image": "C:\\Users\\user\\Desktop\\Uni\\Proj\\Project\\EMROAI\\backend\\tmp\\ai_runs\\1c4f9979a598\\input.png",
+  "output_dir": "C:\\Users\\user\\Desktop\\Uni\\Proj\\Project\\EMROAI\\backend\\tmp\\ai_runs\\1c4f9979a598\\out",
+  "mask_shape": [
+    555,
+    817,
+    5
+  ],
+  "num_labels": 5,
+  "analysis": {
+    "0": {
+      "pixel_count": 453293,
+      "coverage_percent": 99.96868349377529,
+      "num_regions": 1,
+      "regions": [
+        {
+          "pixel_count": 453293,
+          "bbox": [
+            0,
+            0,
+            817,
+            555
+          ]
+        }
+      ]
+    },
+    "2": {
+      "pixel_count": 1,
+      "coverage_percent": 0.00022053877623033069,
+      "num_regions": 1,
+      "regions": [
+        {
+          "pixel_count": 1,
+          "bbox": [
+            753,
+            242,
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    "3": {
+      "pixel_count": 7,
+      "coverage_percent": 0.0015437714336123149,
+      "num_regions": 1,
+      "regions": [
+        {
+          "pixel_count": 7,
+          "bbox": [
+            223,
+            134,
+            4,
+            3
+          ]
+        }
+      ]
+    },
+    "4": {
+      "pixel_count": 134,
+      "coverage_percent": 0.029552196014864314,
+      "num_regions": 17,
+      "regions": [
+        {
+          "pixel_count": 1,
+          "bbox": [
+            224,
+            135,
+            1,
+            1
+          ]
+        },
+        {
+          "pixel_count": 2,
+          "bbox": [
+            206,
+            140,
+            1,
+            2
+          ]
+        },
+        {
+          "pixel_count": 9,
+          "bbox": [
+            567,
+            169,
+            3,
+            4
+          ]
+        },
+        {
+          "pixel_count": 3,
+          "bbox": [
+            280,
+            201,
+            1,
+            3
+          ]
+        },
+        {
+          "pixel_count": 11,
+          "bbox": [
+            278,
+            205,
+            4,
+            4
+          ]
+        },
+        {
+          "pixel_count": 4,
+          "bbox": [
+            273,
+            208,
+            2,
+            2
+          ]
+        },
+        {
+          "pixel_count": 14,
+          "bbox": [
+            761,
+            210,
+            5,
+            4
+          ]
+        },
+        {
+          "pixel_count": 20,
+          "bbox": [
+            271,
+            229,
+            4,
+            6
+          ]
+        },
+        {
+          "pixel_count": 7,
+          "bbox": [
+            265,
+            232,
+            4,
+            3
+          ]
+        },
+        {
+          "pixel_count": 3,
+          "bbox": [
+            549,
+            316,
+            2,
+            2
+          ]
+        },
+        {
+          "pixel_count": 29,
+          "bbox": [
+            768,
+            332,
+            9,
+            9
+          ]
+        },
+        {
+          "pixel_count": 20,
+          "bbox": [
+            547,
+            337,
+            4,
+            6
+          ]
+        },
+        {
+          "pixel_count": 2,
+          "bbox": [
+            418,
+            363,
+            2,
+            1
+          ]
+        },
+        {
+          "pixel_count": 6,
+          "bbox": [
+            417,
+            374,
+            2,
+            3
+          ]
+        },
+        {
+          "pixel_count": 1,
+          "bbox": [
+            403,
+            443,
+            1,
+            1
+          ]
+        },
+        {
+          "pixel_count": 1,
+          "bbox": [
+            402,
+            444,
+            1,
+            1
+          ]
+        },
+        {
+          "pixel_count": 1,
+          "bbox": [
+            398,
+            446,
+            1,
+            1
+          ]
+        }
+      ]
+    }
+  },
+  "notes": {
+    "threshold": 0.5,
+    "meta": {}
+  }
+}

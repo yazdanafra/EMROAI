@@ -1,3 +1,4 @@
+// admin/src/pages/Doctor/DoctorAppointmentDetails.jsx
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import axios from "axios";
@@ -16,64 +17,94 @@ const DoctorAppointmentDetails = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
+  // pdf downloading
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
   // upload state
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
 
+  // deleting attachment id/url (to show spinner / disable)
+  const [deletingAttachment, setDeletingAttachment] = useState(null);
+
   // editing states
-  const [editModes, setEditModes] = useState({
-    diagnosis: false,
-    prescriptions: false,
-    doctorNotes: false,
-    vitals: false,
-  });
   const [globalEdit, setGlobalEdit] = useState(false);
   const [tempClinical, setTempClinical] = useState({});
   const [savingSection, setSavingSection] = useState(null); // which section is being saved (or 'all')
 
+  // ---------------------------
+  // Auth header helper (robust)
+  // ---------------------------
+  const getAuthToken = () => {
+    return (
+      dToken ||
+      localStorage.getItem("dToken") ||
+      localStorage.getItem("token") ||
+      localStorage.getItem("authToken") ||
+      ""
+    );
+  };
+
+  const getAuthHeaders = () => {
+    const token = getAuthToken();
+    const headers = {};
+    if (token) {
+      headers.dToken = token;
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
+  // ---------------------------
   // load appointment
+  // ---------------------------
   const fetchAppointment = async (aptId) => {
     if (!aptId) return;
+    const token = getAuthToken();
+    if (!token) {
+      console.warn("fetchAppointment: no token available yet");
+      return;
+    }
+
     setLoading(true);
     setErr(null);
     try {
       const { data } = await axios.get(
         `${backendUrl}/api/records/appointments/${aptId}`,
         {
-          headers: { Authorization: `Bearer ${dToken}` },
+          headers: getAuthHeaders(),
         },
       );
       if (data?.success && data.appointment) {
         setAppointment(data.appointment);
         setTempClinical(data.appointment.clinical || {});
-      } else if (
-        data?.success &&
-        data?.appointment === undefined &&
-        data?.appointment !== null
-      ) {
-        setErr("Server returned unexpected response");
       } else {
-        setErr(data.message || "Failed to load");
-        toast.error(data.message || "Failed to load appointment");
+        const msg = data?.message || "Failed to load appointment";
+        setErr(msg);
+        toast.error(msg);
       }
     } catch (error) {
       console.error("fetch appointment details error", error);
-      const msg =
+      const serverMsg =
         error?.response?.data?.message ||
+        error?.response?.data ||
         error?.message ||
         "Failed to fetch appointment";
-      setErr(msg);
-      toast.error(msg);
-      if (error?.response?.status === 401) {
-        navigate(-1);
-      }
+      setErr(serverMsg);
+      toast.error(serverMsg);
     } finally {
       setLoading(false);
     }
   };
 
+  // Only attempt fetch when we have a token (prevents firing a request with undefined token)
   useEffect(() => {
     if (!id) return;
+    const token = getAuthToken();
+    if (!token) {
+      const t = setTimeout(() => fetchAppointment(id), 500);
+      return () => clearTimeout(t);
+    }
     fetchAppointment(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, dToken]);
@@ -93,28 +124,6 @@ const DoctorAppointmentDetails = () => {
   const prescriptions = Array.isArray(clinical.prescriptions)
     ? clinical.prescriptions
     : [];
-  const diagnosis =
-    clinical.diagnosis && typeof clinical.diagnosis === "object"
-      ? clinical.diagnosis
-      : { text: "", codes: [] };
-  const diagnosisCodes = Array.isArray(diagnosis.codes) ? diagnosis.codes : [];
-  const vitals =
-    clinical.vitals && typeof clinical.vitals === "object"
-      ? clinical.vitals
-      : {};
-  // tempClinical safe accessors
-  const diagnosisText =
-    tempClinical?.diagnosis && typeof tempClinical.diagnosis === "object"
-      ? tempClinical.diagnosis.text || ""
-      : String(tempClinical?.diagnosis || "");
-  const prescriptionsList = Array.isArray(tempClinical?.prescriptions)
-    ? tempClinical.prescriptions
-    : [];
-  const doctorNotes = tempClinical?.doctorNotes || "";
-  const vitalsObj =
-    tempClinical?.vitals && typeof tempClinical.vitals === "object"
-      ? tempClinical.vitals
-      : {};
 
   // file upload helpers
   const openFile = () => {
@@ -140,7 +149,10 @@ const DoctorAppointmentDetails = () => {
         `${backendUrl}/api/records/appointments/${id}/attachments`,
         form,
         {
-          headers: { Authorization: `Bearer ${dToken}` },
+          headers: {
+            ...getAuthHeaders(),
+            "Content-Type": "multipart/form-data",
+          },
         },
       );
 
@@ -168,12 +180,10 @@ const DoctorAppointmentDetails = () => {
           uploadedAt: fileObj.uploadedAt
             ? new Date(fileObj.uploadedAt)
             : new Date(),
-          // keep whatever id the backend returned
           fileId:
             fileObj.fileId || fileObj._id || fileObj.id || fileObj.public_id,
         };
 
-        // append to appointment state so the UI updates
         setAppointment((prev) => {
           if (!prev) return prev;
           const clinicalCopy = { ...(prev.clinical || {}) };
@@ -184,7 +194,6 @@ const DoctorAppointmentDetails = () => {
           return { ...prev, clinical: clinicalCopy };
         });
 
-        // also update tempClinical (so UI stays in-sync if editing other sections)
         setTempClinical((prev) => {
           const copy = { ...(prev || {}) };
           copy.attachments = [...(copy.attachments || []), normalized];
@@ -204,37 +213,113 @@ const DoctorAppointmentDetails = () => {
     }
   };
 
-  // ---------- Editing helpers ----------
-  const enterGlobalEdit = () => {
-    setEditModes({
-      diagnosis: true,
-      prescriptions: true,
-      doctorNotes: true,
-      vitals: true,
-    });
-    setGlobalEdit(true);
+  // ---------- Delete attachment helper ----------
+  const deleteAttachment = async (att) => {
+    const fileId =
+      att.fileId || att._id || att.id || att.public_id || undefined;
+    const confirmed = window.confirm(
+      "Delete this attachment? This action cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    const deletingKey = fileId || att.url;
+    setDeletingAttachment(deletingKey);
+
+    try {
+      const url = fileId
+        ? `${backendUrl}/api/records/appointments/${appointment._id}/attachments/${encodeURIComponent(
+            String(fileId),
+          )}`
+        : `${backendUrl}/api/records/appointments/${appointment._id}/attachments`;
+
+      const config = {
+        headers: getAuthHeaders(),
+        data: fileId ? undefined : { url: att.url },
+      };
+
+      const { data } = await axios.delete(url, config);
+
+      if (data?.success) {
+        if (data.appointment) {
+          setAppointment(data.appointment);
+          setTempClinical(data.appointment.clinical || {});
+        } else {
+          const matches = (a) =>
+            (a.fileId && fileId && String(a.fileId) === String(fileId)) ||
+            (a._id && fileId && String(a._id) === String(fileId)) ||
+            (a.url && a.url === att.url);
+          setAppointment((prev) => {
+            if (!prev) return prev;
+            const copy = { ...prev };
+            copy.clinical = copy.clinical || {};
+            copy.clinical.attachments = (
+              copy.clinical.attachments || []
+            ).filter((a) => !matches(a));
+            return copy;
+          });
+          setTempClinical((prev) => {
+            if (!prev) return prev;
+            const copy = { ...prev };
+            copy.attachments = (copy.attachments || []).filter(
+              (a) => !matches(a),
+            );
+            return copy;
+          });
+        }
+        toast.success("Attachment deleted");
+      } else {
+        throw new Error(data?.message || "Delete failed");
+      }
+    } catch (err) {
+      console.error("deleteAttachment error:", err);
+      toast.error(
+        err?.response?.data?.message || err.message || "Failed to delete",
+      );
+    } finally {
+      setDeletingAttachment(null);
+    }
   };
 
-  const cancelGlobalEdit = () => {
-    // revert tempClinical to appointment.clinical
-    setTempClinical(() => ({ ...(appointment?.clinical || {}) }));
-    setEditModes({
-      diagnosis: false,
-      prescriptions: false,
-      doctorNotes: false,
-      vitals: false,
-    });
-    setGlobalEdit(false);
+  // ---------- PDF download helper ----------
+  const downloadPdf = async (mode = "full") => {
+    if (!appointment) return;
+    setDownloadingPdf(true);
+    try {
+      const resp = await axios.get(
+        `${backendUrl}/api/records/appointments/${appointment._id}/pdf?mode=${encodeURIComponent(
+          mode,
+        )}`,
+        {
+          headers: getAuthHeaders(),
+          responseType: "blob",
+        },
+      );
+      const contentType = resp.headers["content-type"] || "application/pdf";
+      const url = window.URL.createObjectURL(
+        new Blob([resp.data], { type: contentType }),
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      const suffix = mode === "ticket" ? "ticket" : "full";
+      a.download = `appointment_${appointment._id}_${suffix}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("downloadPdf error:", err);
+      toast.error("Failed to download PDF");
+    } finally {
+      setDownloadingPdf(false);
+    }
   };
 
-  // generic save: can save a single section or all (we use here for 'all')
+  // ---------- Editing helpers (save) ----------
   const saveSection = async (section) => {
     if (!appointment) return;
-    setSavingSection(section);
+    setSavingSection(section || "all");
     try {
       const payload = {};
-
-      // attach the fields requested (backend will parse/normalize)
       if (section === "diagnosis") {
         payload.diagnosis = tempClinical.diagnosis || { text: "" };
       } else if (section === "prescriptions") {
@@ -244,25 +329,21 @@ const DoctorAppointmentDetails = () => {
       } else if (section === "vitals") {
         payload.vitals = tempClinical.vitals || {};
       } else {
-        // "all"
         payload.diagnosis = tempClinical.diagnosis || { text: "" };
         payload.prescriptions = tempClinical.prescriptions || [];
         payload.doctorNotes = tempClinical.doctorNotes || "";
         payload.vitals = tempClinical.vitals || {};
       }
 
-      // --- IMPORTANT: send attachments too, but normalize id keys to fileId ---
       const attachSource =
         tempClinical.attachments ??
         appointment.clinical?.attachments ??
         attachments ??
         [];
-
       payload.attachments = attachSource.map((a) => {
-        if (!a || typeof a === "string") return a; // keep strings as-is
+        if (!a || typeof a === "string") return a;
         return {
           ...a,
-          // normalize possible ID fields into fileId
           fileId:
             a.fileId || a._id || a.id || a.public_id || a.file_id || undefined,
         };
@@ -272,34 +353,23 @@ const DoctorAppointmentDetails = () => {
         `${backendUrl}/api/records/appointments/${appointment._id}/finish`,
         payload,
         {
-          headers: { Authorization: `Bearer ${dToken}` },
+          headers: getAuthHeaders(),
         },
       );
 
-      // Important: only set appointment from returned object if server returned a real appointment
       if (data?.success && data?.appointment) {
         setAppointment(data.appointment);
         setTempClinical(data.appointment.clinical || {});
       } else if (data?.success && !data?.appointment) {
-        // server didn't return appointment — re-fetch authoritative copy
         await fetchAppointment(appointment._id);
       } else if (!data?.success) {
         throw new Error(data?.message || "Save failed");
       }
 
       toast.success("Saved");
-
-      // if saved all, exit global edit; otherwise only toggle that section
-      if (section === "all") {
-        setEditModes({
-          diagnosis: false,
-          prescriptions: false,
-          doctorNotes: false,
-          vitals: false,
-        });
+      // close global edit if saved all
+      if (!section || section === "all") {
         setGlobalEdit(false);
-      } else {
-        setEditModes((s) => ({ ...s, [section]: false }));
       }
     } catch (error) {
       console.error("saveSection error:", error);
@@ -311,51 +381,75 @@ const DoctorAppointmentDetails = () => {
     }
   };
 
-  // ---------- small state helpers ----------
+  // ---------- small local helpers for editing ----------
+  function createEmptyRx() {
+    return {
+      name: "",
+      form: "",
+      dose: "",
+      frequency: "",
+      duration: "",
+      instructions: "",
+      createdAt: new Date(),
+    };
+  }
+
   const setDiagnosisText = (v) =>
     setTempClinical((prev) => ({
       ...(prev || {}),
       diagnosis: { ...(prev?.diagnosis || {}), text: v },
     }));
-
-  const setDoctorNotes = (v) =>
+  const setDoctorNotesLocal = (v) =>
     setTempClinical((prev) => ({ ...(prev || {}), doctorNotes: v }));
-
-  const setVitalsField = (key, value) =>
-    setTempClinical((prev) => ({
-      ...(prev || {}),
-      vitals: { ...(prev?.vitals || {}), [key]: value },
-    }));
-
   const addPrescription = () =>
     setTempClinical((prev) => {
       const list = [...(prev?.prescriptions || [])];
-      list.push({
-        name: "",
-        form: "",
-        dose: "",
-        frequency: "",
-        duration: "",
-        instructions: "",
-        prescribedBy: null,
-        createdAt: new Date(),
-      });
+      list.push(createEmptyRx());
       return { ...(prev || {}), prescriptions: list };
     });
-
   const updatePrescription = (index, key, value) =>
     setTempClinical((prev) => {
       const list = [...(prev?.prescriptions || [])];
       list[index] = { ...(list[index] || {}), [key]: value };
       return { ...(prev || {}), prescriptions: list };
     });
-
   const removePrescription = (index) =>
     setTempClinical((prev) => {
       const list = [...(prev?.prescriptions || [])];
       list.splice(index, 1);
       return { ...(prev || {}), prescriptions: list };
     });
+
+  // ---------- UI helpers ----------
+  const enterGlobalEdit = () => {
+    setTempClinical(appointment.clinical || {});
+    setGlobalEdit(true);
+  };
+  const cancelGlobalEdit = () => {
+    setTempClinical(appointment.clinical || {});
+    setGlobalEdit(false);
+  };
+
+  // helper to render empty-ish values as underscore-like line
+  const renderValue = (v) => {
+    if (
+      v === null ||
+      v === undefined ||
+      (typeof v === "string" && v.trim() === "") ||
+      (Array.isArray(v) && v.length === 0)
+    ) {
+      return <span className="text-gray-400 select-none">__________</span>;
+    }
+    // if it's an object or array, stringify small
+    if (typeof v === "object") {
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return String(v);
+      }
+    }
+    return v;
+  };
 
   // ---------- Render guards ----------
   if (loading) {
@@ -386,7 +480,7 @@ const DoctorAppointmentDetails = () => {
         <h3 className="text-lg font-medium mb-2">No appointment selected</h3>
         <pre className="p-3 bg-gray-100 text-xs rounded max-w-full overflow-auto">
           {JSON.stringify(
-            { id, dTokenPresent: !!dToken, loading, err },
+            { id, dTokenPresent: !!getAuthToken(), loading, err },
             null,
             2,
           )}
@@ -402,6 +496,8 @@ const DoctorAppointmentDetails = () => {
       </div>
     );
   }
+
+  const completed = !!appointment.isCompleted;
 
   return (
     <div className="m-5 max-w-5xl">
@@ -424,139 +520,176 @@ const DoctorAppointmentDetails = () => {
           >
             Back
           </button>
+          <button
+            onClick={() => downloadPdf(completed ? "full" : "ticket")}
+            disabled={downloadingPdf}
+            className="px-3 py-1 border rounded bg-primary text-white hover:opacity-95"
+          >
+            {downloadingPdf
+              ? "Downloading..."
+              : completed
+                ? "Download PDF"
+                : "Download ticket"}
+          </button>
         </div>
       </div>
 
       {/* Top half: clinical info */}
-      <div className="bg-white border rounded p-5 mb-4 space-y-6">
+      <div className="bg-white border rounded p-5 mb-4 space-y-6 shadow-sm">
+        <div>
+          <h3 className="text-lg font-medium">Clinical notes</h3>
+          <div className="text-xs text-gray-500 mt-1">
+            Edit the whole section and save all changes at once.
+          </div>
+        </div>
+
         {/* Diagnosis */}
         <div>
           <div className="mb-2">
-            <h3 className="font-medium">Diagnosis</h3>
+            <h4 className="font-medium">Diagnosis</h4>
           </div>
-
-          {!editModes.diagnosis ? (
-            <p className="text-gray-800">
-              {diagnosis?.text || "— no diagnosis provided —"}
-            </p>
+          {!globalEdit ? (
+            <div className="p-3 bg-gray-50 rounded min-h-[70px] text-sm whitespace-pre-wrap">
+              {renderValue(appointment.clinical?.diagnosis?.text)}
+            </div>
           ) : (
             <textarea
-              rows={4}
-              value={diagnosisText}
+              value={tempClinical?.diagnosis?.text || ""}
               onChange={(e) => setDiagnosisText(e.target.value)}
-              className="w-full border rounded p-2 text-sm"
+              className="w-full p-2 border rounded min-h-[80px]"
             />
-          )}
-
-          {/* codes preview (read-only) */}
-          {diagnosisCodes.length > 0 && (
-            <div className="mt-2 text-xs text-gray-600">
-              Codes:
-              <ul className="list-disc list-inside">
-                {diagnosisCodes.map((c, i) => (
-                  <li key={i}>
-                    {c.system || ""} {c.code ? `: ${c.code}` : ""}{" "}
-                    {c.display ? `(${c.display})` : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
           )}
         </div>
 
         {/* Prescriptions */}
         <div>
           <div className="mb-2">
-            <h3 className="font-medium">Prescriptions</h3>
+            <h4 className="font-medium">Prescriptions</h4>
           </div>
 
-          {!editModes.prescriptions ? (
-            prescriptions.length === 0 ? (
-              <p className="text-gray-800">— none —</p>
-            ) : (
-              <div className="space-y-2">
-                {prescriptions.map((p, i) => (
+          {!globalEdit ? (
+            <div className="p-3 bg-gray-50 rounded space-y-2">
+              {prescriptions.length === 0 ? (
+                <div className="text-sm text-gray-500">No prescriptions.</div>
+              ) : (
+                prescriptions.map((p, idx) => (
                   <div
-                    key={i}
-                    className="p-2 border rounded bg-gray-50 text-sm"
+                    key={idx}
+                    className="border rounded p-2 bg-white text-sm"
                   >
-                    <div className="font-medium">{p.name || "Unnamed"}</div>
-                    <div className="text-xs text-gray-600">
-                      {p.form ? `${p.form} • ` : ""}
-                      {p.dose ? `${p.dose} • ` : ""}
-                      {p.frequency ? `${p.frequency} • ` : ""}
-                      {p.duration ? `${p.duration}` : ""}
-                    </div>
-                    {p.instructions && (
-                      <div className="mt-1 text-xs text-gray-700">
-                        Instructions: {p.instructions}
+                    <div className="flex flex-wrap gap-3">
+                      <div className="min-w-[160px]">
+                        <strong className="block text-xs text-gray-600">
+                          Name
+                        </strong>
+                        <div>{renderValue(p.name)}</div>
                       </div>
-                    )}
+                      <div className="min-w-[120px]">
+                        <strong className="block text-xs text-gray-600">
+                          Form
+                        </strong>
+                        <div>{renderValue(p.form)}</div>
+                      </div>
+                      <div className="min-w-[100px]">
+                        <strong className="block text-xs text-gray-600">
+                          Dose
+                        </strong>
+                        <div>{renderValue(p.dose)}</div>
+                      </div>
+                      <div className="min-w-[120px]">
+                        <strong className="block text-xs text-gray-600">
+                          Frequency
+                        </strong>
+                        <div>{renderValue(p.frequency)}</div>
+                      </div>
+                      <div className="min-w-[100px]">
+                        <strong className="block text-xs text-gray-600">
+                          Duration
+                        </strong>
+                        <div>{renderValue(p.duration)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <strong className="block text-xs text-gray-600">
+                        Instructions
+                      </strong>
+                      <div className="text-sm">
+                        {renderValue(p.instructions)}
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )
+                ))
+              )}
+            </div>
           ) : (
-            <div className="space-y-3">
-              {prescriptionsList.map((p, i) => (
-                <div key={i} className="p-3 border rounded bg-gray-50">
-                  <div className="flex gap-2 mb-2">
+            <div className="p-2 bg-gray-50 rounded space-y-3">
+              {(tempClinical.prescriptions || []).map((p, idx) => (
+                <div
+                  key={idx}
+                  className="border rounded-lg p-3 bg-white space-y-2"
+                >
+                  <div className="flex gap-2">
                     <input
-                      placeholder="Name"
                       value={p.name || ""}
                       onChange={(e) =>
-                        updatePrescription(i, "name", e.target.value)
+                        updatePrescription(idx, "name", e.target.value)
                       }
-                      className="flex-1 px-2 py-1 border rounded text-sm"
+                      placeholder="Drug name"
+                      className="border rounded p-2 flex-1"
                     />
                     <input
-                      placeholder="Form"
                       value={p.form || ""}
                       onChange={(e) =>
-                        updatePrescription(i, "form", e.target.value)
+                        updatePrescription(idx, "form", e.target.value)
                       }
-                      className="w-28 px-2 py-1 border rounded text-sm"
+                      placeholder="Form (e.g. tablet)"
+                      className="border rounded p-2 w-36"
                     />
                   </div>
-                  <div className="flex gap-2 mb-2">
+
+                  <div className="flex gap-2">
                     <input
-                      placeholder="Dose"
                       value={p.dose || ""}
                       onChange={(e) =>
-                        updatePrescription(i, "dose", e.target.value)
+                        updatePrescription(idx, "dose", e.target.value)
                       }
-                      className="flex-1 px-2 py-1 border rounded text-sm"
+                      placeholder="Dose (e.g. 500 mg)"
+                      className="border rounded p-2 w-40"
                     />
                     <input
-                      placeholder="Frequency"
                       value={p.frequency || ""}
                       onChange={(e) =>
-                        updatePrescription(i, "frequency", e.target.value)
+                        updatePrescription(idx, "frequency", e.target.value)
                       }
-                      className="w-36 px-2 py-1 border rounded text-sm"
+                      placeholder="Frequency (e.g. twice daily)"
+                      className="border rounded p-2 flex-1"
                     />
                     <input
-                      placeholder="Duration"
                       value={p.duration || ""}
                       onChange={(e) =>
-                        updatePrescription(i, "duration", e.target.value)
+                        updatePrescription(idx, "duration", e.target.value)
                       }
-                      className="w-36 px-2 py-1 border rounded text-sm"
+                      placeholder="Duration (e.g. 5 days)"
+                      className="border rounded p-2 w-36"
                     />
                   </div>
-                  <textarea
-                    placeholder="Instructions"
-                    rows={2}
-                    value={p.instructions || ""}
-                    onChange={(e) =>
-                      updatePrescription(i, "instructions", e.target.value)
-                    }
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                  <div className="mt-2 flex justify-end">
+
+                  <div>
+                    <input
+                      value={p.instructions || ""}
+                      onChange={(e) =>
+                        updatePrescription(idx, "instructions", e.target.value)
+                      }
+                      placeholder="Instructions (optional)"
+                      className="border rounded p-2 w-full"
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
                     <button
-                      onClick={() => removePrescription(i)}
-                      className="px-2 py-1 text-sm border rounded text-red-600"
+                      type="button"
+                      onClick={() => removePrescription(idx)}
+                      className="text-red-600 text-sm"
                     >
                       Remove
                     </button>
@@ -567,7 +700,8 @@ const DoctorAppointmentDetails = () => {
               <div>
                 <button
                   onClick={addPrescription}
-                  className="px-3 py-1 border rounded text-sm"
+                  className="px-2 py-1 border rounded text-sm"
+                  type="button"
                 >
                   + Add prescription
                 </button>
@@ -579,19 +713,18 @@ const DoctorAppointmentDetails = () => {
         {/* Doctor notes */}
         <div>
           <div className="mb-2">
-            <h3 className="font-medium">Doctor notes</h3>
+            <h4 className="font-medium">Doctor notes</h4>
           </div>
 
-          {!editModes.doctorNotes ? (
-            <p className="text-gray-800">
-              {clinical.doctorNotes || "— none —"}
-            </p>
+          {!globalEdit ? (
+            <div className="p-3 bg-gray-50 rounded min-h-[70px] text-sm whitespace-pre-wrap">
+              {renderValue(appointment.clinical?.doctorNotes)}
+            </div>
           ) : (
             <textarea
-              rows={4}
-              value={doctorNotes}
-              onChange={(e) => setDoctorNotes(e.target.value)}
-              className="w-full border rounded p-2 text-sm"
+              value={tempClinical?.doctorNotes || ""}
+              onChange={(e) => setDoctorNotesLocal(e.target.value)}
+              className="w-full p-2 border rounded min-h-[80px]"
             />
           )}
         </div>
@@ -599,53 +732,72 @@ const DoctorAppointmentDetails = () => {
         {/* Vitals */}
         <div>
           <div className="mb-2">
-            <h3 className="font-medium">Vitals</h3>
+            <h4 className="font-medium">Vitals</h4>
           </div>
 
-          {!editModes.vitals ? (
-            <div className="mt-1 text-gray-800 text-sm">
-              <div>Blood pressure: {vitals.bp || "—"}</div>
-              <div>Heart rate: {vitals.hr || "—"}</div>
-              {/* display other vitals if present */}
-              {Object.keys(vitals).map((k) =>
-                k === "bp" || k === "hr" ? null : (
-                  <div key={k}>
-                    {k}: {String(vitals[k])}
-                  </div>
-                ),
+          {!globalEdit ? (
+            <div className="p-3 bg-gray-50 rounded text-sm">
+              {appointment.clinical?.vitals &&
+              Object.keys(appointment.clinical.vitals).length ? (
+                <div>
+                  {Object.entries(appointment.clinical.vitals).map(([k, v]) => (
+                    <div key={k}>
+                      <strong className="capitalize mr-1">{k}:</strong>{" "}
+                      <span>{renderValue(String(v))}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">{renderValue(null)}</div>
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <input
-                placeholder="Blood pressure (e.g. 120/80)"
-                value={vitalsObj.bp || ""}
-                onChange={(e) => setVitalsField("bp", e.target.value)}
-                className="px-2 py-1 border rounded text-sm"
-              />
-              <input
-                placeholder="Heart rate (bpm)"
-                value={vitalsObj.hr || ""}
-                onChange={(e) => setVitalsField("hr", e.target.value)}
-                className="px-2 py-1 border rounded text-sm"
-              />
+            <div className="p-2 bg-gray-50 rounded space-y-2">
+              <div className="flex gap-2">
+                <input
+                  value={tempClinical?.vitals?.bp || ""}
+                  onChange={(e) =>
+                    setTempClinical((prev) => ({
+                      ...(prev || {}),
+                      vitals: { ...(prev?.vitals || {}), bp: e.target.value },
+                    }))
+                  }
+                  placeholder="Blood pressure"
+                  className="p-1 border rounded flex-1"
+                />
+                <input
+                  value={tempClinical?.vitals?.hr || ""}
+                  onChange={(e) =>
+                    setTempClinical((prev) => ({
+                      ...(prev || {}),
+                      vitals: { ...(prev?.vitals || {}), hr: e.target.value },
+                    }))
+                  }
+                  placeholder="Heart rate"
+                  className="p-1 border rounded w-28"
+                />
+                <input
+                  value={tempClinical?.vitals?.temp || ""}
+                  onChange={(e) =>
+                    setTempClinical((prev) => ({
+                      ...(prev || {}),
+                      vitals: { ...(prev?.vitals || {}), temp: e.target.value },
+                    }))
+                  }
+                  placeholder="Temp"
+                  className="p-1 border rounded w-24"
+                />
+              </div>
             </div>
           )}
         </div>
 
-        <div className="mt-2 text-xs text-gray-500">
-          Finalized at:{" "}
-          {clinical.finalizedAt
-            ? new Date(clinical.finalizedAt).toLocaleString()
-            : "—"}
-        </div>
-
-        {/* GLOBAL edit controls (single Edit / Save / Cancel) placed at the end of the clinical container */}
-        <div className="flex justify-end gap-2 mt-3">
+        {/* bottom edit controls (user requested edit button at bottom of the section) */}
+        <div className="mt-4 border-t pt-4 flex items-center justify-end gap-3">
           {!globalEdit ? (
             <button
               onClick={enterGlobalEdit}
-              className="px-3 py-1 border rounded text-sm"
+              className="px-3 py-1 border rounded text-sm bg-white hover:bg-gray-50"
             >
               Edit
             </button>
@@ -656,12 +808,11 @@ const DoctorAppointmentDetails = () => {
                 disabled={savingSection === "all"}
                 className="px-3 py-1 border rounded bg-primary text-white text-sm"
               >
-                {savingSection === "all" ? "Saving..." : "Save"}
+                {savingSection === "all" ? "Saving..." : "Save all"}
               </button>
               <button
                 onClick={cancelGlobalEdit}
-                disabled={savingSection === "all"}
-                className="px-3 py-1 border rounded text-sm"
+                className="px-3 py-1 border rounded text-sm bg-white hover:bg-gray-50"
               >
                 Cancel
               </button>
@@ -670,18 +821,17 @@ const DoctorAppointmentDetails = () => {
         </div>
       </div>
 
-      {/* Bottom half: attachments with Analyze and Add button */}
-      <div className="bg-white border rounded p-5 min-h-0">
+      {/* Bottom half: attachments */}
+      <div className="bg-white border rounded p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-medium">Attachments</h3>
         </div>
 
-        {/* grid: show the big placeholder when no attachments, otherwise show attachments + plus tile */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 auto-rows-fr">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {attachments.length === 0 ? (
-            <div className="col-span-full p-6 bg-gray-50 border rounded min-h-64 flex flex-col items-center justify-center">
-              <div className="text-gray-500 text-lg">No attachments.</div>
-              <div className="mt-4 flex justify-center">
+            <div className="col-span-full p-6 bg-gray-50 border rounded h-56 flex flex-col items-center justify-center">
+              <div className="text-gray-500 text-lg mb-2">No attachments.</div>
+              <div className="mt-4">
                 <button
                   onClick={openFile}
                   disabled={uploading}
@@ -700,12 +850,14 @@ const DoctorAppointmentDetails = () => {
                 const isImage = att.type?.startsWith?.("image");
                 const fileId =
                   att.fileId || att._id || att.id || att.public_id || null;
+                const deletingKey = fileId || att.url;
+                const key = fileId || att.url || `att-${i}`;
                 return (
                   <div
-                    key={i}
-                    className="border rounded overflow-hidden shadow-sm bg-gray-50 min-h-56 flex flex-col"
+                    key={key}
+                    className="border rounded overflow-hidden bg-white flex flex-col"
                   >
-                    <div className="flex-1 h-48 flex items-center justify-center bg-white">
+                    <div className="flex-1 min-h-[160px] flex items-center justify-center bg-gray-50 p-3">
                       {isImage ? (
                         <img
                           src={att.url}
@@ -713,20 +865,30 @@ const DoctorAppointmentDetails = () => {
                           className="max-h-full max-w-full object-contain"
                         />
                       ) : (
-                        <div className="p-4 text-sm text-gray-600">
+                        <div className="p-2 text-sm text-gray-600 truncate">
                           {att.filename || att.url}
                         </div>
                       )}
                     </div>
-                    <div className="p-3 flex items-center justify-between">
-                      <div className="text-sm text-gray-700 break-words max-w-[70%]">
-                        {att.filename || att.url}
+
+                    <div className="px-3 py-3 border-t bg-white">
+                      <div className="mb-2">
+                        <div className="text-sm font-medium text-gray-800 truncate">
+                          {att.filename || att.url || "Attachment"}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          {(att.uploadedAt &&
+                            new Date(att.uploadedAt).toLocaleString()) ||
+                            ""}
+                        </div>
                       </div>
-                      <div className="flex gap-2">
+
+                      {/* Action buttons: stacked full width below filename (prevents cropping) */}
+                      <div className="flex flex-col gap-2">
                         {fileId ? (
                           <Link
                             to={`/doctor/attachment/${appointment._id}/${fileId}`}
-                            className="px-2 py-1 border rounded text-xs hover:bg-gray-100"
+                            className="w-full text-center px-3 py-2 border rounded text-sm hover:bg-gray-50"
                           >
                             Open
                           </Link>
@@ -734,27 +896,38 @@ const DoctorAppointmentDetails = () => {
                           <button
                             disabled
                             title="No file id"
-                            className="px-2 py-1 border rounded text-xs opacity-50 cursor-not-allowed"
+                            className="w-full text-center px-3 py-2 border rounded text-sm opacity-50 cursor-not-allowed"
                           >
                             Open
                           </button>
                         )}
+
                         <a
                           href={att.url}
                           download
-                          className="px-2 py-1 border rounded text-xs hover:bg-gray-100"
+                          className="w-full text-center px-3 py-2 border rounded text-sm hover:bg-gray-50"
                         >
                           Download
                         </a>
+
+                        <button
+                          onClick={() => deleteAttachment(att)}
+                          disabled={deletingAttachment === deletingKey}
+                          className="w-full text-center px-3 py-2 border rounded text-sm text-red-600 hover:bg-red-50"
+                        >
+                          {deletingAttachment === deletingKey
+                            ? "Deleting..."
+                            : "Delete"}
+                        </button>
                       </div>
                     </div>
                   </div>
                 );
               })}
 
-              {/* plus tile (visible only when attachments exist) */}
+              {/* Add new attachment card */}
               <div
-                className="flex flex-col items-center justify-center border rounded p-4 cursor-pointer hover:shadow min-h-56"
+                className="flex flex-col items-center justify-center border rounded p-4 cursor-pointer hover:shadow h-56"
                 onClick={openFile}
                 role="button"
                 aria-label="Add attachment"
