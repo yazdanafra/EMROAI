@@ -41,7 +41,7 @@ const DoctorAppointmentDetails = () => {
         `${backendUrl}/api/records/appointments/${aptId}`,
         {
           headers: { Authorization: `Bearer ${dToken}` },
-        }
+        },
       );
       if (data?.success && data.appointment) {
         setAppointment(data.appointment);
@@ -141,7 +141,7 @@ const DoctorAppointmentDetails = () => {
         form,
         {
           headers: { Authorization: `Bearer ${dToken}` },
-        }
+        },
       );
 
       if (data.success) {
@@ -273,7 +273,7 @@ const DoctorAppointmentDetails = () => {
         payload,
         {
           headers: { Authorization: `Bearer ${dToken}` },
-        }
+        },
       );
 
       // Important: only set appointment from returned object if server returned a real appointment
@@ -388,7 +388,7 @@ const DoctorAppointmentDetails = () => {
           {JSON.stringify(
             { id, dTokenPresent: !!dToken, loading, err },
             null,
-            2
+            2,
           )}
         </pre>
         <div className="mt-3">
@@ -612,7 +612,7 @@ const DoctorAppointmentDetails = () => {
                   <div key={k}>
                     {k}: {String(vitals[k])}
                   </div>
-                )
+                ),
               )}
             </div>
           ) : (
@@ -671,16 +671,16 @@ const DoctorAppointmentDetails = () => {
       </div>
 
       {/* Bottom half: attachments with Analyze and Add button */}
-      <div className="bg-white border rounded p-5">
+      <div className="bg-white border rounded p-5 min-h-0">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-medium">Attachments</h3>
         </div>
 
         {/* grid: show the big placeholder when no attachments, otherwise show attachments + plus tile */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 auto-rows-fr">
           {attachments.length === 0 ? (
-            <div className="col-span-full p-6 text-center bg-gray-50 border rounded">
-              <div className="text-gray-500">No attachments.</div>
+            <div className="col-span-full p-6 bg-gray-50 border rounded min-h-64 flex flex-col items-center justify-center">
+              <div className="text-gray-500 text-lg">No attachments.</div>
               <div className="mt-4 flex justify-center">
                 <button
                   onClick={openFile}
@@ -689,6 +689,9 @@ const DoctorAppointmentDetails = () => {
                 >
                   {uploading ? "Uploading..." : "Add attachment"}
                 </button>
+              </div>
+              <div className="mt-3 text-sm text-gray-500">
+                Attach images or documents related to this visit.
               </div>
             </div>
           ) : (
@@ -700,9 +703,9 @@ const DoctorAppointmentDetails = () => {
                 return (
                   <div
                     key={i}
-                    className="border rounded overflow-hidden shadow-sm bg-gray-50"
+                    className="border rounded overflow-hidden shadow-sm bg-gray-50 min-h-56 flex flex-col"
                   >
-                    <div className="h-48 flex items-center justify-center bg-white">
+                    <div className="flex-1 h-48 flex items-center justify-center bg-white">
                       {isImage ? (
                         <img
                           src={att.url}
@@ -751,7 +754,7 @@ const DoctorAppointmentDetails = () => {
 
               {/* plus tile (visible only when attachments exist) */}
               <div
-                className="flex flex-col items-center justify-center border rounded p-4 cursor-pointer hover:shadow"
+                className="flex flex-col items-center justify-center border rounded p-4 cursor-pointer hover:shadow min-h-56"
                 onClick={openFile}
                 role="button"
                 aria-label="Add attachment"

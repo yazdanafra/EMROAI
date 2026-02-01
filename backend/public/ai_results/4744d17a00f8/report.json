@@ -1,0 +1,92 @@
+{
+  "generated_at": "2026-02-01 01:02:46",
+  "input_image": "C:\\Users\\user\\Desktop\\Uni\\Proj\\Project\\EMROAI\\backend\\tmp\\ai_runs\\4744d17a00f8\\input.png",
+  "output_dir": "C:\\Users\\user\\Desktop\\Uni\\Proj\\Project\\EMROAI\\backend\\tmp\\ai_runs\\4744d17a00f8\\out",
+  "mask_shape": [
+    560,
+    823,
+    5
+  ],
+  "num_labels": 5,
+  "analysis": {
+    "0": {
+      "pixel_count": 460848,
+      "coverage_percent": 99.993056760979,
+      "num_regions": 1,
+      "regions": [
+        {
+          "pixel_count": 460848,
+          "bbox": [
+            0,
+            0,
+            823,
+            560
+          ]
+        }
+      ]
+    },
+    "3": {
+      "pixel_count": 10,
+      "coverage_percent": 0.0021697621940635304,
+      "num_regions": 2,
+      "regions": [
+        {
+          "pixel_count": 5,
+          "bbox": [
+            493,
+            328,
+            2,
+            3
+          ]
+        },
+        {
+          "pixel_count": 5,
+          "bbox": [
+            211,
+            380,
+            3,
+            2
+          ]
+        }
+      ]
+    },
+    "4": {
+      "pixel_count": 22,
+      "coverage_percent": 0.004773476826939767,
+      "num_regions": 3,
+      "regions": [
+        {
+          "pixel_count": 14,
+          "bbox": [
+            492,
+            57,
+            6,
+            5
+          ]
+        },
+        {
+          "pixel_count": 7,
+          "bbox": [
+            511,
+            194,
+            4,
+            2
+          ]
+        },
+        {
+          "pixel_count": 1,
+          "bbox": [
+            211,
+            381,
+            1,
+            1
+          ]
+        }
+      ]
+    }
+  },
+  "notes": {
+    "threshold": 0.5,
+    "meta": {}
+  }
+}

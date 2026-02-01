@@ -11,6 +11,20 @@
     "start": "node server.js",
     "server": "nodemon server.js"
   },
+  "nodemonConfig": {
+    "watch": [
+      "."
+    ],
+    "ignore": [
+      "public/ai_results/**",
+      "public/ai_results/*",
+      "tmp/**",
+      "tmp/*",
+      "node_modules/**"
+    ],
+    "ext": "js,json",
+    "delay": "500ms"
+  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.8.0",
