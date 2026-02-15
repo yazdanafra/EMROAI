@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState } from "react";
  * - saved state (annotations, mmPerPx, zoom, offset) restored *and applied* so reopening doesn't cause overlay jumps
  * - header layout reworked to be responsive; Close button always visible top-right
  * - "Adjust" button next to scale forces overlay re-alignment (fixes small mispositioning after zoom)
+ * - viewer container overflow hidden + offset clamping so image never spills outside the black viewer area
  */
 export default function ImageAnnotatorModal({
   src,
@@ -115,14 +116,17 @@ export default function ImageAnnotatorModal({
           idCounterRef.current = Math.max(idCounterRef.current, maxIdNum + 1);
         }
         if (typeof parsed.mmPerPx === "number") setMmPerPx(parsed.mmPerPx);
+        // IMPORTANT: use clampAndSet when available; if img not ready, fallback to plain set
         if (parsed.zoom && typeof parsed.zoom === "number") {
+          // apply later: set temporary values now (clamping will run on image load / when available)
           setZoom(parsed.zoom);
           skipFitOnLoadRef.current = true; // we have saved zoom/offset; don't auto-fit on load
         } else {
           skipFitOnLoadRef.current = false;
         }
-        if (parsed.offset && typeof parsed.offset.x === "number")
+        if (parsed.offset && typeof parsed.offset.x === "number") {
           setOffset(parsed.offset);
+        }
       } else {
         skipFitOnLoadRef.current = false;
       }
@@ -266,6 +270,70 @@ export default function ImageAnnotatorModal({
     const x = imgRect.left - containerRect.left + ix * scaleX;
     const y = imgRect.top - containerRect.top + iy * scaleX;
     return { x, y };
+  };
+
+  /* --------------------------
+   CLAMP HELPERS: keep image inside viewer bounds
+   - improved: when image is smaller than viewer we allow it to be moved
+     anywhere inside the viewer (minLeft = 0, maxLeft = cw - dispW),
+     but default position on load remains centered.
+   -------------------------- */
+  const clampAndSet = (proposedZoom, proposedOffset) => {
+    const img = imgRef.current;
+    const container = containerRef.current;
+
+    // if we don't have measurements yet, just set raw values (they will be clamped later)
+    if (!img || !container) {
+      setZoom(proposedZoom);
+      setOffset(proposedOffset || { x: 0, y: 0 });
+      return;
+    }
+
+    const { iw, ih } = getImageNaturalSize();
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+
+    const dispW = Math.max(1, iw * proposedZoom);
+    const dispH = Math.max(1, ih * proposedZoom);
+
+    // Horizontal limits
+    let minLeft, maxLeft;
+    if (dispW <= cw) {
+      // image fits: allow it to move anywhere inside the viewer
+      minLeft = 0;
+      maxLeft = cw - dispW;
+    } else {
+      // image larger than viewer: clamp so edges can't escape
+      minLeft = cw - dispW; // negative
+      maxLeft = 0;
+    }
+
+    // Vertical limits
+    let minTop, maxTop;
+    if (dispH <= ch) {
+      minTop = 0;
+      maxTop = ch - dispH;
+    } else {
+      minTop = ch - dispH;
+      maxTop = 0;
+    }
+
+    // If caller didn't provide an offset, default to centered position
+    const defaultX = (cw - dispW) / 2;
+    const defaultY = (ch - dispH) / 2;
+
+    let px =
+      typeof proposedOffset?.x === "number" ? proposedOffset.x : defaultX;
+    let py =
+      typeof proposedOffset?.y === "number" ? proposedOffset.y : defaultY;
+
+    // clamp into allowed range
+    px = Math.min(maxLeft, Math.max(minLeft, px));
+    py = Math.min(maxTop, Math.max(minTop, py));
+
+    // apply
+    setZoom(proposedZoom);
+    setOffset({ x: px, y: py });
   };
 
   /* --------------------------
@@ -485,10 +553,12 @@ export default function ImageAnnotatorModal({
     if (panRef.current.dragging && tool === "pan") {
       const dx = e.clientX - panRef.current.start.x;
       const dy = e.clientY - panRef.current.start.y;
-      setOffset({
+      // compute new offset and clamp immediately so user cannot pan out of frame
+      const newOffset = {
         x: panRef.current.startOffset.x + dx,
         y: panRef.current.startOffset.y + dy,
-      });
+      };
+      clampAndSet(zoom, newOffset);
     }
   };
 
@@ -520,16 +590,15 @@ export default function ImageAnnotatorModal({
     const newOffsetX = cx - imageX * newZoom;
     const newOffsetY = cy - imageY * newZoom;
 
-    setZoom(newZoom);
-    setOffset({ x: newOffsetX, y: newOffsetY });
+    clampAndSet(newZoom, { x: newOffsetX, y: newOffsetY });
   };
 
   /* --------------------------
      Fit/reset image view
      -------------------------- */
   const resetView = () => {
-    setZoom(1);
-    setOffset({ x: 0, y: 0 });
+    // center/fit as clamped
+    clampAndSet(1, { x: 0, y: 0 });
     skipFitOnLoadRef.current = false;
   };
 
@@ -546,8 +615,7 @@ export default function ImageAnnotatorModal({
     const newZoom = scale;
     const newOffsetX = (cw - iw * newZoom) / 2;
     const newOffsetY = (ch - ih * newZoom) / 2;
-    setZoom(newZoom);
-    setOffset({ x: newOffsetX, y: newOffsetY });
+    clampAndSet(newZoom, { x: newOffsetX, y: newOffsetY });
     skipFitOnLoadRef.current = false;
   };
 
@@ -969,7 +1037,7 @@ export default function ImageAnnotatorModal({
             <div className="flex items-center gap-2 px-2 py-1 border rounded bg-white">
               <button
                 onClick={() =>
-                  setZoom((z) => Math.max(0.05, Math.min(20, z / 1.2)))
+                  clampAndSet(Math.max(0.05, Math.min(20, zoom / 1.2)), offset)
                 }
                 className="px-2 py-1"
               >
@@ -981,12 +1049,12 @@ export default function ImageAnnotatorModal({
                 max={20}
                 step={0.01}
                 value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
+                onChange={(e) => clampAndSet(Number(e.target.value), offset)}
                 style={{ width: 120 }}
               />
               <button
                 onClick={() =>
-                  setZoom((z) => Math.max(0.05, Math.min(20, z * 1.2)))
+                  clampAndSet(Math.max(0.05, Math.min(20, zoom * 1.2)), offset)
                 }
                 className="px-2 py-1"
               >
@@ -1026,7 +1094,7 @@ export default function ImageAnnotatorModal({
           </div>
         </div>
 
-        {/* main viewer */}
+        {/* main viewer: overflow hidden so image can't visually escape the black frame */}
         <div
           ref={containerRef}
           className="relative w-full h-[72vh] sm:h-[60vh] bg-[#111111] cursor-crosshair touch-none"
@@ -1035,7 +1103,11 @@ export default function ImageAnnotatorModal({
           onPointerUp={handlePointerUp}
           onWheel={handleWheel}
           onDoubleClick={resetView}
-          style={{ overscrollBehavior: "none", touchAction: "none" }}
+          style={{
+            overscrollBehavior: "none",
+            touchAction: "none",
+            overflow: "hidden",
+          }}
         >
           <img
             ref={imgRef}
@@ -1048,8 +1120,15 @@ export default function ImageAnnotatorModal({
               if (!skipFitOnLoadRef.current) {
                 fitToWindow();
               } else {
+                // we restored values earlier — now clamp them with real measurements
+                // ensure offset has sensible defaults (center) if saved offset is missing/invalid
+                const safeOffset = {
+                  x: typeof offset.x === "number" ? offset.x : 0,
+                  y: typeof offset.y === "number" ? offset.y : 0,
+                };
+                clampAndSet(zoom, safeOffset);
+
                 // Force a tiny re-render so overlay measurements compute against final layout
-                // (this helps ensure svgOverlay reflects applied transform)
                 setTimeout(() => {
                   setZoom((z) => z);
                   setOffset((o) => ({ ...o }));
