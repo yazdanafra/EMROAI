@@ -198,6 +198,61 @@ router.patch(
   },
 );
 
+// -----------------------
+// NEW: PATCH — rename attachment filename (doctor only)
+// -----------------------
+router.patch(
+  "/appointments/:id/attachments/:fileId/rename",
+  requireAuth,
+  requireRole("doctor"),
+  async (req, res) => {
+    try {
+      const { id, fileId } = req.params;
+      const { filename } = req.body;
+
+      if (typeof filename !== "string" || !filename.trim()) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "filename (non-empty string) required",
+          });
+      }
+
+      const appt = await Appointment.findById(id);
+      if (!appt)
+        return res
+          .status(404)
+          .json({ success: false, message: "Appointment not found" });
+
+      const attachments = appt.clinical?.attachments || [];
+      const idx = attachments.findIndex(
+        (a) =>
+          String(a.fileId) === String(fileId) ||
+          String(a._id) === String(fileId),
+      );
+
+      if (idx === -1) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Attachment not found" });
+      }
+
+      const key = `clinical.attachments.${idx}.filename`;
+      const updated = await Appointment.findByIdAndUpdate(
+        id,
+        { $set: { [key]: String(filename).trim() } },
+        { new: true },
+      ).lean();
+
+      return res.json({ success: true, appointment: updated });
+    } catch (err) {
+      console.error("rename attachment error:", err);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
 // DELETE attachment (by fileId in URL or by { url } in body)
 // e.g. DELETE /appointments/:id/attachments/:fileId
 // if :fileId omitted, pass { url } in body and it will delete by url match

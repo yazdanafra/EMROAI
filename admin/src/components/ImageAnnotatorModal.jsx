@@ -8,12 +8,9 @@ import React, { useEffect, useRef, useState } from "react";
  * - onClose: () => void
  *
  * Notes:
- * - label size control removed from UI (labels larger by default)
- * - measurement and label text sizes increased
- * - saved state (annotations, mmPerPx, zoom, offset) restored *and applied* so reopening doesn't cause overlay jumps
- * - header layout reworked to be responsive; Close button always visible top-right
- * - "Adjust" button next to scale forces overlay re-alignment (fixes small mispositioning after zoom)
- * - viewer container overflow hidden + offset clamping so image never spills outside the black viewer area
+ * - header layout changed: filename moved to its own row above controls
+ * - long filename handling: truncation with ellipsis + full name on hover (title)
+ * - other functionality unchanged
  */
 export default function ImageAnnotatorModal({
   src,
@@ -116,11 +113,9 @@ export default function ImageAnnotatorModal({
           idCounterRef.current = Math.max(idCounterRef.current, maxIdNum + 1);
         }
         if (typeof parsed.mmPerPx === "number") setMmPerPx(parsed.mmPerPx);
-        // IMPORTANT: use clampAndSet when available; if img not ready, fallback to plain set
         if (parsed.zoom && typeof parsed.zoom === "number") {
-          // apply later: set temporary values now (clamping will run on image load / when available)
           setZoom(parsed.zoom);
-          skipFitOnLoadRef.current = true; // we have saved zoom/offset; don't auto-fit on load
+          skipFitOnLoadRef.current = true;
         } else {
           skipFitOnLoadRef.current = false;
         }
@@ -274,15 +269,11 @@ export default function ImageAnnotatorModal({
 
   /* --------------------------
    CLAMP HELPERS: keep image inside viewer bounds
-   - improved: when image is smaller than viewer we allow it to be moved
-     anywhere inside the viewer (minLeft = 0, maxLeft = cw - dispW),
-     but default position on load remains centered.
    -------------------------- */
   const clampAndSet = (proposedZoom, proposedOffset) => {
     const img = imgRef.current;
     const container = containerRef.current;
 
-    // if we don't have measurements yet, just set raw values (they will be clamped later)
     if (!img || !container) {
       setZoom(proposedZoom);
       setOffset(proposedOffset || { x: 0, y: 0 });
@@ -296,19 +287,15 @@ export default function ImageAnnotatorModal({
     const dispW = Math.max(1, iw * proposedZoom);
     const dispH = Math.max(1, ih * proposedZoom);
 
-    // Horizontal limits
     let minLeft, maxLeft;
     if (dispW <= cw) {
-      // image fits: allow it to move anywhere inside the viewer
       minLeft = 0;
       maxLeft = cw - dispW;
     } else {
-      // image larger than viewer: clamp so edges can't escape
-      minLeft = cw - dispW; // negative
+      minLeft = cw - dispW;
       maxLeft = 0;
     }
 
-    // Vertical limits
     let minTop, maxTop;
     if (dispH <= ch) {
       minTop = 0;
@@ -318,7 +305,6 @@ export default function ImageAnnotatorModal({
       maxTop = 0;
     }
 
-    // If caller didn't provide an offset, default to centered position
     const defaultX = (cw - dispW) / 2;
     const defaultY = (ch - dispH) / 2;
 
@@ -327,11 +313,9 @@ export default function ImageAnnotatorModal({
     let py =
       typeof proposedOffset?.y === "number" ? proposedOffset.y : defaultY;
 
-    // clamp into allowed range
     px = Math.min(maxLeft, Math.max(minLeft, px));
     py = Math.min(maxTop, Math.max(minTop, py));
 
-    // apply
     setZoom(proposedZoom);
     setOffset({ x: px, y: py });
   };
@@ -553,7 +537,6 @@ export default function ImageAnnotatorModal({
     if (panRef.current.dragging && tool === "pan") {
       const dx = e.clientX - panRef.current.start.x;
       const dy = e.clientY - panRef.current.start.y;
-      // compute new offset and clamp immediately so user cannot pan out of frame
       const newOffset = {
         x: panRef.current.startOffset.x + dx,
         y: panRef.current.startOffset.y + dy,
@@ -597,7 +580,6 @@ export default function ImageAnnotatorModal({
      Fit/reset image view
      -------------------------- */
   const resetView = () => {
-    // center/fit as clamped
     clampAndSet(1, { x: 0, y: 0 });
     skipFitOnLoadRef.current = false;
   };
@@ -806,26 +788,20 @@ export default function ImageAnnotatorModal({
   }, []);
 
   /* --------------------------
-     Adjust overlay (fixes those tiny misalignments after zoom)
-     - Forces a reflow/read of bounding rects and triggers a no-op state change.
-     - Uses RAF to ensure browser had a paint pass.
+     Adjust overlay (fixes tiny misalignments after zoom)
      -------------------------- */
   const adjustOverlay = () => {
     if (!imgRef.current || !containerRef.current) {
-      // still trigger a tick so UI can re-render if necessary
       setAlignTick((t) => t + 1);
       return;
     }
 
-    // read bounding rects to force layout flush
     imgRef.current.getBoundingClientRect();
     containerRef.current.getBoundingClientRect();
 
-    // a tiny no-op state toggles to force React to re-render and recompute svgOverlay
     setOffset((o) => ({ ...o }));
     setAlignTick((t) => t + 1);
 
-    // second pass on next frame — helps in some browsers where layout.resolve is async
     requestAnimationFrame(() => {
       setZoom((z) => z);
       setOffset((o) => ({ ...o }));
@@ -905,7 +881,6 @@ export default function ImageAnnotatorModal({
             fill="rgba(0,120,255,0.95)"
             onPointerDown={(e) => handleAnnotationPointerDown(e, a, "p2")}
           />
-          {/* label background */}
           <rect
             x={(a.x + a.x2) / 2 - 40}
             y={(a.y + a.y2) / 2 - 14}
@@ -932,15 +907,12 @@ export default function ImageAnnotatorModal({
     return null;
   };
 
-  /* --------------------------
-     Compute SVG overlay rectangle
-     -------------------------- */
   const computeSvgOverlay = () => {
     const img = imgRef.current;
     const container = containerRef.current;
     if (!img || !container) return null;
     const imgRect = img.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
+    const containerRect = containerRef.current.getBoundingClientRect();
     const left = imgRect.left - containerRect.left;
     const top = imgRect.top - containerRect.top;
     const width = imgRect.width;
@@ -949,9 +921,6 @@ export default function ImageAnnotatorModal({
     return { left, top, width, height, iw, ih };
   };
 
-  /* --------------------------
-     JSX
-     -------------------------- */
   const svgOverlay = computeSvgOverlay();
 
   return (
@@ -963,7 +932,7 @@ export default function ImageAnnotatorModal({
         aria-hidden
       />
 
-      {/* reserve space on the right for absolute close button */}
+      {/* modal panel */}
       <div className="relative z-10 w-full max-w-[96vw] max-h-[94vh] bg-white rounded shadow-lg overflow-hidden pr-16">
         {/* close top-right */}
         <button
@@ -975,122 +944,138 @@ export default function ImageAnnotatorModal({
           ✕
         </button>
 
-        {/* header */}
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="font-semibold truncate max-w-[28ch]">
+        {/* HEADER: filename in its own row (prevents long names from pushing controls) */}
+        <div className="px-4 py-3 border-b">
+          {/* filename row: full width, truncates if too long, shows full name on hover via title */}
+          <div className="w-full min-w-0 mb-2">
+            <div
+              className="font-semibold text-sm truncate"
+              title={filename}
+              style={{ maxWidth: "100%" }}
+            >
               {filename}
-            </div>
-            <div className="text-sm text-gray-500">Annotator</div>
-
-            <div className="text-xs text-gray-500 flex items-center gap-2">
-              <span>Scale (mm / px):</span>
-              <input
-                type="number"
-                step="0.001"
-                value={mmPerPx}
-                onChange={(e) => setMmPerPx(Number(e.target.value))}
-                className="w-28 border rounded px-2 py-0.5 text-sm"
-                title="Millimetres per pixel. Calibrate for accuracy."
-              />
-              {/* Adjust button: forces overlay re-evaluation without changing any values */}
-              <button
-                onClick={adjustOverlay}
-                className="ml-2 px-2 py-1 border rounded text-sm bg-white"
-                title="Adjust overlay to correct any small misalignments"
-              >
-                Adjust
-              </button>
             </div>
           </div>
 
-          {/* right toolbar */}
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <div className="flex gap-2">
+          {/* control row: left small label/scale, right toolbar */}
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-gray-500 flex items-center gap-3">
+              <div className="hidden sm:block">Annotator</div>
+
+              <div className="text-xs text-gray-500 flex items-center gap-2">
+                <span>Scale (mm / px):</span>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={mmPerPx}
+                  onChange={(e) => setMmPerPx(Number(e.target.value))}
+                  className="w-28 border rounded px-2 py-0.5 text-sm"
+                  title="Millimetres per pixel. Calibrate for accuracy."
+                />
+                <button
+                  onClick={adjustOverlay}
+                  className="ml-2 px-2 py-1 border rounded text-sm bg-white"
+                  title="Adjust overlay to correct any small misalignments"
+                >
+                  Adjust
+                </button>
+              </div>
+            </div>
+
+            {/* right toolbar — fixed to right and won't be pushed by filename */}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setTool("pan")}
+                  className={`px-3 py-1 rounded ${tool === "pan" ? "bg-primary text-white" : "bg-white border"}`}
+                >
+                  Pan
+                </button>
+                <button
+                  onClick={() => setTool("measure")}
+                  className={`px-3 py-1 rounded ${tool === "measure" ? "bg-primary text-white" : "bg-white border"}`}
+                >
+                  Measure
+                </button>
+                <button
+                  onClick={() => setTool("label")}
+                  className={`px-3 py-1 rounded ${tool === "label" ? "bg-primary text-white" : "bg-white border"}`}
+                >
+                  Label
+                </button>
+                <button
+                  onClick={() => fitToWindow()}
+                  className="px-3 py-1 rounded bg-white border"
+                  title="Fit image"
+                >
+                  Fit
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 px-2 py-1 border rounded bg-white">
+                <button
+                  onClick={() =>
+                    clampAndSet(
+                      Math.max(0.05, Math.min(20, zoom / 1.2)),
+                      offset,
+                    )
+                  }
+                  className="px-2 py-1"
+                >
+                  −
+                </button>
+                <input
+                  type="range"
+                  min={0.05}
+                  max={20}
+                  step={0.01}
+                  value={zoom}
+                  onChange={(e) => clampAndSet(Number(e.target.value), offset)}
+                  style={{ width: 120 }}
+                />
+                <button
+                  onClick={() =>
+                    clampAndSet(
+                      Math.max(0.05, Math.min(20, zoom * 1.2)),
+                      offset,
+                    )
+                  }
+                  className="px-2 py-1"
+                >
+                  +
+                </button>
+              </div>
+
               <button
-                onClick={() => setTool("pan")}
-                className={`px-3 py-1 rounded ${tool === "pan" ? "bg-primary text-white" : "bg-white border"}`}
-              >
-                Pan
-              </button>
-              <button
-                onClick={() => setTool("measure")}
-                className={`px-3 py-1 rounded ${tool === "measure" ? "bg-primary text-white" : "bg-white border"}`}
-              >
-                Measure
-              </button>
-              <button
-                onClick={() => setTool("label")}
-                className={`px-3 py-1 rounded ${tool === "label" ? "bg-primary text-white" : "bg-white border"}`}
-              >
-                Label
-              </button>
-              <button
-                onClick={() => fitToWindow()}
+                onClick={undo}
                 className="px-3 py-1 rounded bg-white border"
-                title="Fit image"
+                title="Undo (Ctrl/Cmd+Z)"
               >
-                Fit
+                Undo
+              </button>
+              <button
+                onClick={redo}
+                className="px-3 py-1 rounded bg-white border"
+                title="Redo (Ctrl/Cmd+Y)"
+              >
+                Redo
+              </button>
+
+              <button
+                onClick={exportMergedPNG}
+                className="px-3 py-1 rounded bg-primary text-white whitespace-nowrap"
+              >
+                Download PNG
+              </button>
+
+              <button
+                onClick={() => clearSavedState()}
+                className="px-3 py-1 rounded bg-white border text-sm mr-2"
+                title="Clear saved annotations for this image"
+              >
+                Clear saved
               </button>
             </div>
-
-            <div className="flex items-center gap-2 px-2 py-1 border rounded bg-white">
-              <button
-                onClick={() =>
-                  clampAndSet(Math.max(0.05, Math.min(20, zoom / 1.2)), offset)
-                }
-                className="px-2 py-1"
-              >
-                −
-              </button>
-              <input
-                type="range"
-                min={0.05}
-                max={20}
-                step={0.01}
-                value={zoom}
-                onChange={(e) => clampAndSet(Number(e.target.value), offset)}
-                style={{ width: 120 }}
-              />
-              <button
-                onClick={() =>
-                  clampAndSet(Math.max(0.05, Math.min(20, zoom * 1.2)), offset)
-                }
-                className="px-2 py-1"
-              >
-                +
-              </button>
-            </div>
-
-            <button
-              onClick={undo}
-              className="px-3 py-1 rounded bg-white border"
-              title="Undo (Ctrl/Cmd+Z)"
-            >
-              Undo
-            </button>
-            <button
-              onClick={redo}
-              className="px-3 py-1 rounded bg-white border"
-              title="Redo (Ctrl/Cmd+Y)"
-            >
-              Redo
-            </button>
-
-            <button
-              onClick={exportMergedPNG}
-              className="px-3 py-1 rounded bg-primary text-white whitespace-nowrap"
-            >
-              Download PNG
-            </button>
-
-            <button
-              onClick={() => clearSavedState()}
-              className="px-3 py-1 rounded bg-white border text-sm mr-2"
-              title="Clear saved annotations for this image"
-            >
-              Clear saved
-            </button>
           </div>
         </div>
 
@@ -1116,19 +1101,15 @@ export default function ImageAnnotatorModal({
             alt="annotate"
             draggable={false}
             onLoad={() => {
-              // If we restored zoom/offset from saved state, don't auto-fit (that would override).
               if (!skipFitOnLoadRef.current) {
                 fitToWindow();
               } else {
-                // we restored values earlier — now clamp them with real measurements
-                // ensure offset has sensible defaults (center) if saved offset is missing/invalid
                 const safeOffset = {
                   x: typeof offset.x === "number" ? offset.x : 0,
                   y: typeof offset.y === "number" ? offset.y : 0,
                 };
                 clampAndSet(zoom, safeOffset);
 
-                // Force a tiny re-render so overlay measurements compute against final layout
                 setTimeout(() => {
                   setZoom((z) => z);
                   setOffset((o) => ({ ...o }));

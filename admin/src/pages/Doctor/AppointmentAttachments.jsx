@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom"; // keep Link import
 import axios from "axios";
+import { toast } from "react-toastify";
 import { DoctorContext } from "../../context/DoctorContext";
 import { AppContext } from "../../context/AppContext";
 import { assets } from "../../assets/assets";
@@ -22,6 +23,15 @@ const AppointmentAttachments = () => {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
+  // renaming state (key = fileId or _id or url)
+  const [renamingAttachment, setRenamingAttachment] = useState(null);
+
+  // modal state for rename
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [modalAttachment, setModalAttachment] = useState(null);
+  const [modalFilename, setModalFilename] = useState("");
+  const [modalSaving, setModalSaving] = useState(false);
+
   useEffect(() => {
     if (!appointmentId) return;
     const fetch = async () => {
@@ -31,7 +41,7 @@ const AppointmentAttachments = () => {
           `${backendUrl}/api/records/appointments/${appointmentId}`,
           {
             headers: { Authorization: `Bearer ${dToken}` },
-          }
+          },
         );
         if (data.success) {
           const ap = data.appointment || data;
@@ -66,8 +76,8 @@ const AppointmentAttachments = () => {
     ? appointment.slotDate
       ? slotDateFormat(appointment.slotDate)
       : appointment.date
-      ? new Date(appointment.date).toLocaleString()
-      : "Appointment"
+        ? new Date(appointment.date).toLocaleString()
+        : "Appointment"
     : "Appointment";
 
   // open file picker (called by + tile)
@@ -100,7 +110,7 @@ const AppointmentAttachments = () => {
           headers: {
             Authorization: `Bearer ${dToken}`,
           },
-        }
+        },
       );
 
       if (resp?.data?.success) {
@@ -144,6 +154,8 @@ const AppointmentAttachments = () => {
           clinical.attachments = [...(clinical.attachments || []), normalized];
           return { ...prev, clinical };
         });
+
+        toast.success("Attachment uploaded");
       } else {
         const msg = resp?.data?.message || "Upload failed";
         throw new Error(msg);
@@ -151,10 +163,177 @@ const AppointmentAttachments = () => {
     } catch (err) {
       console.error("attachment upload error:", err);
       const msg = err?.response?.data?.message || err.message || String(err);
-      alert("Upload failed: " + msg);
+      toast.error("Upload failed: " + msg);
     } finally {
       setUploading(false);
     }
+  };
+
+  // -------------------------
+  // Helper: auth headers (doctor token)
+  // -------------------------
+  const getAuthHeaders = () => {
+    const token =
+      dToken ||
+      localStorage.getItem("dToken") ||
+      localStorage.getItem("token") ||
+      localStorage.getItem("authToken") ||
+      "";
+    return { Authorization: `Bearer ${token}` };
+  };
+
+  // ---------- Delete attachment helper ----------
+  const deleteAttachment = async (att) => {
+    const fileId =
+      att.fileId || att._id || att.id || att.public_id || undefined;
+    const confirmed = window.confirm(
+      "Delete this attachment? This action cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    const deletingKey = fileId || att.url;
+    setRenamingAttachment(null);
+    // use renamingAttachment state slot for spinner for simplicity (reusing)
+    setRenamingAttachment(`deleting-${deletingKey}`);
+
+    try {
+      const url = fileId
+        ? `${backendUrl}/api/records/appointments/${appointment._id}/attachments/${encodeURIComponent(
+            String(fileId),
+          )}`
+        : `${backendUrl}/api/records/appointments/${appointment._id}/attachments`;
+
+      const config = {
+        headers: getAuthHeaders(),
+        data: fileId ? undefined : { url: att.url },
+      };
+
+      const { data } = await axios.delete(url, config);
+
+      if (data?.success) {
+        if (data.appointment) {
+          setAppointment(data.appointment);
+          setAttachments(data.appointment.clinical?.attachments || []);
+        } else {
+          const matches = (a) =>
+            (a.fileId && fileId && String(a.fileId) === String(fileId)) ||
+            (a._id && fileId && String(a._id) === String(fileId)) ||
+            (a.url && a.url === att.url);
+          setAttachments((prev) => (prev || []).filter((a) => !matches(a)));
+          setAppointment((prev) => {
+            if (!prev) return prev;
+            const copy = { ...prev };
+            copy.clinical = copy.clinical || {};
+            copy.clinical.attachments = (
+              copy.clinical.attachments || []
+            ).filter((a) => !matches(a));
+            return copy;
+          });
+        }
+        toast.success("Attachment deleted");
+      } else {
+        throw new Error(data?.message || "Delete failed");
+      }
+    } catch (err) {
+      console.error("deleteAttachment error:", err);
+      const msg =
+        err?.response?.data?.message || err.message || "Failed to delete";
+      toast.error(msg);
+    } finally {
+      setRenamingAttachment(null);
+    }
+  };
+
+  // ---------- Rename modal helpers ----------
+  const openRenameModal = (att) => {
+    setModalAttachment(att);
+    setModalFilename(att.filename || "");
+    setShowRenameModal(true);
+  };
+
+  const closeRenameModal = () => {
+    setShowRenameModal(false);
+    setModalAttachment(null);
+    setModalFilename("");
+    setModalSaving(false);
+  };
+
+  const saveRenameFromModal = async () => {
+    if (!modalAttachment) return;
+    const fileId =
+      modalAttachment.fileId ||
+      modalAttachment._id ||
+      modalAttachment.id ||
+      null;
+    if (!fileId) {
+      toast.error("Cannot rename this attachment (no fileId available).");
+      return;
+    }
+    if (!modalFilename || !String(modalFilename).trim()) {
+      toast.error("Filename cannot be empty.");
+      return;
+    }
+
+    const key = String(fileId);
+    setModalSaving(true);
+    setRenamingAttachment(key);
+
+    try {
+      const url = `${backendUrl}/api/records/appointments/${appointment._id}/attachments/${encodeURIComponent(
+        String(fileId),
+      )}/rename`;
+
+      const { data } = await axios.patch(
+        url,
+        { filename: String(modalFilename).trim() },
+        { headers: getAuthHeaders() },
+      );
+
+      if (data?.success) {
+        if (data.appointment) {
+          setAppointment(data.appointment);
+          setAttachments(data.appointment.clinical?.attachments || []);
+        } else {
+          // fallback local update
+          setAttachments((prev) =>
+            (prev || []).map((a) =>
+              (a.fileId && String(a.fileId) === String(fileId)) ||
+              String(a._id) === String(fileId)
+                ? { ...a, filename: String(modalFilename).trim() }
+                : a,
+            ),
+          );
+          setAppointment((prev) => {
+            if (!prev) return prev;
+            const clinical = { ...(prev.clinical || {}) };
+            clinical.attachments = (clinical.attachments || []).map((a) =>
+              (a.fileId && String(a.fileId) === String(fileId)) ||
+              String(a._id) === String(fileId)
+                ? { ...a, filename: String(modalFilename).trim() }
+                : a,
+            );
+            return { ...prev, clinical };
+          });
+        }
+        toast.success("Attachment renamed");
+        closeRenameModal();
+      } else {
+        throw new Error(data?.message || "Rename failed");
+      }
+    } catch (err) {
+      console.error("renameAttachment error:", err);
+      const msg =
+        err?.response?.data?.message || err.message || "Rename failed";
+      toast.error(msg);
+    } finally {
+      setModalSaving(false);
+      setRenamingAttachment(null);
+    }
+  };
+
+  // legacy direct rename helper (not used visually, kept for compatibility)
+  const renameAttachmentLegacy = async (att) => {
+    openRenameModal(att);
   };
 
   return (
@@ -221,12 +400,16 @@ const AppointmentAttachments = () => {
                 att.type && att.type.startsWith && att.type.startsWith("image");
               const fileId = att.fileId || att._id || att.id || null;
               const apptId = appointment?._id || appointmentId;
+              const deletingKey = fileId || att.url;
+              const key = fileId || att.url || `att-${i}`;
+              const renKey = fileId || att.url || `att-${i}`;
+
               return (
                 <div
-                  key={i}
-                  className="border rounded overflow-hidden bg-gray-50"
+                  key={key}
+                  className="border rounded overflow-hidden bg-white flex flex-col"
                 >
-                  <div className="h-48 flex items-center justify-center bg-white">
+                  <div className="h-48 flex items-center justify-center bg-gray-50">
                     {isImage ? (
                       <img
                         src={att.url}
@@ -240,34 +423,70 @@ const AppointmentAttachments = () => {
                     )}
                   </div>
 
-                  <div className="p-3 flex items-center justify-between">
-                    <div className="text-sm text-gray-700 break-words max-w-[60%]">
-                      {att.filename || att.url}
+                  <div className="p-3">
+                    <div className="mb-2">
+                      <div className="text-sm font-medium text-gray-800 truncate">
+                        {att.filename || att.url || "Attachment"}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {(att.uploadedAt &&
+                          new Date(att.uploadedAt).toLocaleString()) ||
+                          ""}
+                      </div>
                     </div>
 
-                    <div className="flex gap-2">
+                    {/* Action buttons: stacked full width like details page */}
+                    <div className="flex flex-col gap-2">
                       {fileId ? (
                         <Link
                           to={`/doctor/attachment/${apptId}/${fileId}`}
-                          className="px-2 py-1 border rounded text-xs hover:bg-gray-100"
+                          className="w-full text-center px-3 py-2 border rounded text-sm hover:bg-gray-50"
                         >
                           Open
                         </Link>
                       ) : (
                         <button
                           disabled
-                          className="px-2 py-1 border rounded text-xs opacity-50 cursor-not-allowed"
+                          title="No file id"
+                          className="w-full text-center px-3 py-2 border rounded text-sm opacity-50 cursor-not-allowed"
                         >
                           Open
                         </button>
                       )}
+
                       <a
                         href={att.url}
                         download
-                        className="px-2 py-1 border rounded text-xs hover:bg-gray-100"
+                        className="w-full text-center px-3 py-2 border rounded text-sm hover:bg-gray-50"
                       >
                         Download
                       </a>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openRenameModal(att);
+                        }}
+                        disabled={renamingAttachment === renKey || modalSaving}
+                        className="w-full text-center px-3 py-2 border rounded text-sm hover:bg-gray-50"
+                      >
+                        {renamingAttachment === renKey ||
+                        (modalAttachment && modalAttachment === att)
+                          ? "Renaming..."
+                          : "Rename"}
+                      </button>
+
+                      <button
+                        onClick={() => deleteAttachment(att)}
+                        disabled={
+                          renamingAttachment === `deleting-${deletingKey}`
+                        }
+                        className="w-full text-center px-3 py-2 border rounded text-sm text-red-600 hover:bg-red-50"
+                      >
+                        {renamingAttachment === `deleting-${deletingKey}`
+                          ? "Deleting..."
+                          : "Delete"}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -299,6 +518,48 @@ const AppointmentAttachments = () => {
           className="hidden"
         />
       </div>
+
+      {/* Rename modal */}
+      {showRenameModal && modalAttachment && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="absolute inset-0 bg-black opacity-30"
+            onClick={closeRenameModal}
+          />
+          <div className="relative bg-white rounded shadow-lg w-full max-w-md p-4 z-10">
+            <h3 className="text-lg font-medium mb-2">Rename attachment</h3>
+            <div className="text-sm text-gray-600 mb-3">
+              {modalAttachment.filename || modalAttachment.url}
+            </div>
+            <input
+              value={modalFilename}
+              onChange={(e) => setModalFilename(e.target.value)}
+              className="w-full p-2 border rounded mb-3"
+              placeholder="New filename (include extension)"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={closeRenameModal}
+                className="px-3 py-1 border rounded bg-white hover:bg-gray-50"
+                disabled={modalSaving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveRenameFromModal}
+                className="px-3 py-1 border rounded bg-primary text-white"
+                disabled={modalSaving}
+              >
+                {modalSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

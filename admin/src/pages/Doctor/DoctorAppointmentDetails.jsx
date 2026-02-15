@@ -27,6 +27,15 @@ const DoctorAppointmentDetails = () => {
   // deleting attachment id/url (to show spinner / disable)
   const [deletingAttachment, setDeletingAttachment] = useState(null);
 
+  // renaming attachment id/url (to show spinner / disable)
+  const [renamingAttachment, setRenamingAttachment] = useState(null);
+
+  // modal state for rename
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [modalAttachment, setModalAttachment] = useState(null);
+  const [modalFilename, setModalFilename] = useState("");
+  const [modalSaving, setModalSaving] = useState(false);
+
   // editing states
   const [globalEdit, setGlobalEdit] = useState(false);
   const [tempClinical, setTempClinical] = useState({});
@@ -277,6 +286,97 @@ const DoctorAppointmentDetails = () => {
       );
     } finally {
       setDeletingAttachment(null);
+    }
+  };
+
+  // ---------- Rename modal helpers ----------
+  const openRenameModal = (att) => {
+    setModalAttachment(att);
+    setModalFilename(att.filename || "");
+    setShowRenameModal(true);
+  };
+
+  const closeRenameModal = () => {
+    setShowRenameModal(false);
+    setModalAttachment(null);
+    setModalFilename("");
+    setModalSaving(false);
+  };
+
+  const saveRenameFromModal = async () => {
+    if (!modalAttachment) return;
+    const fileId =
+      modalAttachment.fileId ||
+      modalAttachment._id ||
+      modalAttachment.id ||
+      null;
+    if (!fileId) {
+      toast.error("Cannot rename this attachment (no fileId available).");
+      return;
+    }
+    if (!modalFilename || !String(modalFilename).trim()) {
+      toast.error("Filename cannot be empty.");
+      return;
+    }
+
+    const renKey = fileId || modalAttachment.url;
+    setModalSaving(true);
+    setRenamingAttachment(renKey);
+
+    try {
+      const url = `${backendUrl}/api/records/appointments/${appointment._id}/attachments/${encodeURIComponent(
+        String(fileId),
+      )}/rename`;
+
+      const { data } = await axios.patch(
+        url,
+        { filename: String(modalFilename).trim() },
+        { headers: getAuthHeaders() },
+      );
+
+      if (data?.success) {
+        if (data.appointment) {
+          setAppointment(data.appointment);
+          setTempClinical(data.appointment.clinical || {});
+        } else {
+          // fallback local update
+          const matches = (a) =>
+            (a.fileId && fileId && String(a.fileId) === String(fileId)) ||
+            (a._id && fileId && String(a._id) === String(fileId));
+          setAppointment((prev) => {
+            if (!prev) return prev;
+            const copy = { ...prev };
+            copy.clinical = copy.clinical || {};
+            copy.clinical.attachments = (copy.clinical.attachments || []).map(
+              (a) =>
+                matches(a)
+                  ? { ...a, filename: String(modalFilename).trim() }
+                  : a,
+            );
+            return copy;
+          });
+          setTempClinical((prev) => {
+            if (!prev) return prev;
+            const copy = { ...prev };
+            copy.attachments = (copy.attachments || []).map((a) =>
+              matches(a) ? { ...a, filename: String(modalFilename).trim() } : a,
+            );
+            return copy;
+          });
+        }
+        toast.success("Attachment renamed");
+        closeRenameModal();
+      } else {
+        throw new Error(data?.message || "Rename failed");
+      }
+    } catch (err) {
+      console.error("renameAttachment error:", err);
+      const msg =
+        err?.response?.data?.message || err.message || "Rename failed";
+      toast.error(msg);
+    } finally {
+      setModalSaving(false);
+      setRenamingAttachment(null);
     }
   };
 
@@ -852,6 +952,7 @@ const DoctorAppointmentDetails = () => {
                   att.fileId || att._id || att.id || att.public_id || null;
                 const deletingKey = fileId || att.url;
                 const key = fileId || att.url || `att-${i}`;
+                const renKey = fileId || att.url || `att-${i}`;
                 return (
                   <div
                     key={key}
@@ -910,6 +1011,20 @@ const DoctorAppointmentDetails = () => {
                           Download
                         </a>
 
+                        {/* Rename (moved above Delete) */}
+                        <button
+                          onClick={() => openRenameModal(att)}
+                          disabled={
+                            renamingAttachment === renKey || modalSaving
+                          }
+                          className="w-full text-center px-3 py-2 border rounded text-sm hover:bg-gray-50"
+                        >
+                          {renamingAttachment === renKey ||
+                          (modalAttachment && modalAttachment === att)
+                            ? "Renaming..."
+                            : "Rename"}
+                        </button>
+
                         <button
                           onClick={() => deleteAttachment(att)}
                           disabled={deletingAttachment === deletingKey}
@@ -956,6 +1071,48 @@ const DoctorAppointmentDetails = () => {
           onChange={onFile}
         />
       </div>
+
+      {/* Rename modal */}
+      {showRenameModal && modalAttachment && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="absolute inset-0 bg-black opacity-30"
+            onClick={closeRenameModal}
+          />
+          <div className="relative bg-white rounded shadow-lg w-full max-w-md p-4 z-10">
+            <h3 className="text-lg font-medium mb-2">Rename attachment</h3>
+            <div className="text-sm text-gray-600 mb-3">
+              {modalAttachment.filename || modalAttachment.url}
+            </div>
+            <input
+              value={modalFilename}
+              onChange={(e) => setModalFilename(e.target.value)}
+              className="w-full p-2 border rounded mb-3"
+              placeholder="New filename (include extension)"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={closeRenameModal}
+                className="px-3 py-1 border rounded bg-white hover:bg-gray-50"
+                disabled={modalSaving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveRenameFromModal}
+                className="px-3 py-1 border rounded bg-primary text-white"
+                disabled={modalSaving}
+              >
+                {modalSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
