@@ -3,14 +3,11 @@ import React, { useEffect, useState, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { DoctorContext } from "../../context/DoctorContext";
+import ImageAnnotatorModal from "../../components/ImageAnnotatorModal";
 
 /**
  * AttachmentAnalysis
- * - Shows original image (top) and overlay image (below) with titles
- * - Runs AI analysis and saves lightweight aiAnalysis to DB:
- *     { urls: { overlay, colored_mask, label_mask }, summary: "...", findings: {...} }
- * - Keeps base64 overlay in-memory for immediate display, but does NOT save base64 to DB
- * - Shows concise AI Notes generated from report.json
+ * (unchanged logic except for adding "Open in Annotator" for Original/Overlay)
  */
 const AttachmentAnalysis = () => {
   const { appointmentId, fileId } = useParams();
@@ -20,10 +17,15 @@ const AttachmentAnalysis = () => {
   const [attachment, setAttachment] = useState(null);
   const [appointment, setAppointment] = useState(null);
   const [doctorNotes, setDoctorNotes] = useState("");
-  const [aiAnalysis, setAiAnalysis] = useState(null); // holds either returned analysis (with images) or saved DB analysis
-  const [inMemoryImages, setInMemoryImages] = useState(null); // { overlay: base64 } for immediate display
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [inMemoryImages, setInMemoryImages] = useState(null);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+
+  // NEW: annotator modal state
+  const [annotatorOpen, setAnnotatorOpen] = useState(false);
+  const [annotatorSrc, setAnnotatorSrc] = useState(null);
+  const [annotatorFilename, setAnnotatorFilename] = useState("image");
 
   useEffect(() => {
     if (!appointmentId) return;
@@ -43,7 +45,6 @@ const AttachmentAnalysis = () => {
           );
           setAttachment(att || null);
           setDoctorNotes(att?.doctorNotes || "");
-          // If DB already has aiAnalysis (urls + summary), load it into state:
           setAiAnalysis(att?.aiAnalysis || null);
         }
       } catch (err) {
@@ -52,7 +53,6 @@ const AttachmentAnalysis = () => {
     })();
   }, [appointmentId, fileId, backendUrl, dToken]);
 
-  // Save doctor notes (unchanged route)
   const saveDoctorNotes = async () => {
     setSaving(true);
     try {
@@ -61,7 +61,6 @@ const AttachmentAnalysis = () => {
         { doctorNotes },
         { headers: { Authorization: `Bearer ${dToken}` } },
       );
-      // optimistic UI: success assumed
     } catch (err) {
       console.error("save doctor notes:", err);
       alert("Failed to save notes");
@@ -70,26 +69,22 @@ const AttachmentAnalysis = () => {
     }
   };
 
-  // Helper: parse report JSON robustly (report may be object or JSON string)
   const parseReport = (reportRaw) => {
     if (!reportRaw) return null;
     if (typeof reportRaw === "object") return reportRaw;
     try {
       return JSON.parse(reportRaw);
     } catch (e) {
-      // if it's not JSON, return null
       return null;
     }
   };
 
-  // Create concise, practical summary + findings based on the report structure you provided
   const generateSummaryFromReport = (reportObj) => {
     if (!reportObj) return { summary: "No report content", findings: {} };
 
     const lines = [];
     const findings = {};
 
-    // top metadata
     if (reportObj.generated_at)
       lines.push(`Generated: ${reportObj.generated_at}`);
     if (reportObj.mask_shape && Array.isArray(reportObj.mask_shape)) {
@@ -100,7 +95,6 @@ const AttachmentAnalysis = () => {
     if (typeof reportObj.num_labels !== "undefined")
       lines.push(`Classes detected: ${reportObj.num_labels}`);
 
-    // analyze per-label data (skip label "0" which tends to be background)
     const analysis = reportObj.analysis || {};
     const labelKeys = Object.keys(analysis).sort(
       (a, b) => Number(a) - Number(b),
@@ -113,7 +107,6 @@ const AttachmentAnalysis = () => {
       if (!info) return;
       const cov = Number(info.coverage_percent || 0);
       const regions = Number(info.num_regions || 0);
-      // find largest region
       const largestRegion =
         Array.isArray(info.regions) && info.regions.length
           ? info.regions.reduce(
@@ -121,9 +114,7 @@ const AttachmentAnalysis = () => {
               {},
             )
           : null;
-      // build short text
       const short = `Class ${labelNum}: ${cov.toFixed(2)}% coverage, ${regions} region${regions === 1 ? "" : "s"}${largestRegion ? `, largest ~${largestRegion.pixel_count} px` : ""}`;
-      // add flags for clinically important thresholds (simple heuristics)
       const flags = [];
       if (cov >= 5) flags.push("substantial coverage");
       if (regions >= 20) flags.push("many small regions");
@@ -141,19 +132,15 @@ const AttachmentAnalysis = () => {
 
     if (labelSummaries.length) {
       lines.push("Key class summaries:");
-      // keep it compact: join with "; "
       lines.push(labelSummaries.join("; "));
     }
 
-    // if there are specific notes object, include threshold or meta info
     if (reportObj.notes) {
       if (reportObj.notes.threshold)
         findings.threshold = reportObj.notes.threshold;
     }
 
-    // final suggested clinical comment (very short)
     const suggestions = [];
-    // if any class flagged with substantial coverage add recommendation
     const anySubstantial = labelKeys.some((k) => {
       const c = Number(analysis[k]?.coverage_percent || 0);
       return c >= 5;
@@ -179,7 +166,6 @@ const AttachmentAnalysis = () => {
     return { summary: summaryText, findings };
   };
 
-  // analyze: call AI and save lightweight result to DB (urls + summary + findings)
   const analyze = async () => {
     if (!attachment?.url) return alert("Attachment URL missing");
     setAnalyzing(true);
@@ -191,39 +177,30 @@ const AttachmentAnalysis = () => {
       );
       if (!data?.success) throw new Error("AI analyze failed");
 
-      const aiResult = data.analysis || {}; // the full analysis returned by your AI proxy
-      // keep immediate overlay base64 (if present) in-memory for instant display:
+      const aiResult = data.analysis || {};
       if (aiResult.images && aiResult.images.overlay) {
         setInMemoryImages({ overlay: aiResult.images.overlay });
       } else {
         setInMemoryImages(null);
       }
 
-      // parse report.json from aiResult.report (object or JSON string)
       const reportObj = parseReport(aiResult.report);
       const { summary, findings } = generateSummaryFromReport(reportObj);
 
-      // Build the small payload to persist to DB (do NOT include base64 images)
       const aiToSave = {
         urls: aiResult.urls || attachment?.aiAnalysis?.urls || null,
         summary: summary,
         findings: findings,
-        // keep the raw report if it's small (optional). If it's huge, backend will reject — so only keep key summary.
-        // Here we save the parsed report object if it's present and relatively small-ish (you can change later).
       };
       if (reportObj) aiToSave.report = reportObj;
 
-      // patch to server endpoint that stores aiAnalysis for the attachment
       await axios.patch(
         `${backendUrl}/api/records/appointments/${appointmentId}/attachments/${fileId}/ai`,
         { aiAnalysis: aiToSave },
         { headers: { Authorization: `Bearer ${dToken}` } },
       );
 
-      // update UI state: combine saved aiToSave OR prefer full aiResult for immediate UI (but remove base64 before saving to state)
-      // We'll keep a union where inMemoryImages holds the overlay base64 (for display) and aiAnalysis holds the persistent (saved) object.
       setAiAnalysis(aiToSave);
-      // Also refresh local attachment to include saved aiAnalysis so persistent view on reload works:
       setAttachment((prev) => ({ ...(prev || {}), aiAnalysis: aiToSave }));
     } catch (err) {
       console.error("analyze error:", err);
@@ -233,31 +210,22 @@ const AttachmentAnalysis = () => {
     }
   };
 
-  // Helper to decide which overlay src to display:
-  // priority: inMemoryImages.overlay (base64) -> aiAnalysis.urls.overlay (saved url) -> attachment.aiAnalysis.urls.overlay
   const getOverlaySrc = () => {
-    // in-memory base64 (highest priority)
     if (inMemoryImages?.overlay) return inMemoryImages.overlay;
-
-    // helper to turn relative backend path (e.g. "/ai_results/<id>/overlay.png")
-    // into an absolute URL using the configured backendUrl.
     const normalizeUrl = (u) => {
       if (!u) return null;
-      // already absolute or data URI?
       if (
         u.startsWith("http://") ||
         u.startsWith("https://") ||
         u.startsWith("data:")
       )
         return u;
-      // relative path (starts with "/")
       if (u.startsWith("/")) {
         const base = backendUrl
           ? backendUrl.replace(/\/$/, "")
           : window.location.origin;
         return `${base}${u}`;
       }
-      // fallback: return as-is
       return u;
     };
 
@@ -265,6 +233,14 @@ const AttachmentAnalysis = () => {
     if (attachment?.aiAnalysis?.urls?.overlay)
       return normalizeUrl(attachment.aiAnalysis.urls.overlay);
     return null;
+  };
+
+  // NEW: open annotator helpers
+  const openAnnotator = (src, name = "image") => {
+    if (!src) return alert("No image available to annotate");
+    setAnnotatorFilename(name);
+    setAnnotatorSrc(src);
+    setAnnotatorOpen(true);
   };
 
   if (!attachment) {
@@ -281,15 +257,30 @@ const AttachmentAnalysis = () => {
     );
   }
 
-  // Layout: on small screens stack, on lg screens place images and controls side-by-side.
-  // Use flex-1 + min-h-0 to behave well inside parent flex layout (prevents sidebar shrink).
   return (
     <div className="p-6 flex-1 min-h-0 overflow-auto">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start min-h-0">
         {/* LEFT: stacked images (Original on top, Overlay below) */}
         <div className="w-full space-y-4">
           <div className="bg-white border rounded p-2">
-            <div className="text-sm font-medium mb-2">Original</div>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium mb-2">Original</div>
+              {attachment.type?.startsWith?.("image") && (
+                <div>
+                  <button
+                    onClick={() =>
+                      openAnnotator(
+                        attachment.url,
+                        attachment.filename || "original",
+                      )
+                    }
+                    className="text-xs px-2 py-1 border rounded bg-white"
+                  >
+                    Open in Annotator
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="w-full flex items-center justify-center bg-gray-50">
               {attachment.type?.startsWith?.("image") ? (
                 <img
@@ -306,10 +297,21 @@ const AttachmentAnalysis = () => {
           </div>
 
           <div className="bg-white border rounded p-2">
-            <div className="text-sm font-medium mb-2">Overlay</div>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium mb-2">Overlay</div>
+              {getOverlaySrc() && (
+                <div>
+                  <button
+                    onClick={() => openAnnotator(getOverlaySrc(), "overlay")}
+                    className="text-xs px-2 py-1 border rounded bg-white"
+                  >
+                    Open in Annotator
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="w-full flex items-center justify-center bg-gray-50">
               {getOverlaySrc() ? (
-                // overlay may be a base64 data URL or a static URL
                 <img
                   src={getOverlaySrc()}
                   alt="overlay"
@@ -339,7 +341,6 @@ const AttachmentAnalysis = () => {
             <div className="text-sm text-gray-700 mt-2 space-y-2">
               {aiAnalysis ? (
                 <>
-                  {/* human-readable summary */}
                   <div className="prose-sm">
                     <strong>Summary:</strong>
                     <div className="mt-1">
@@ -347,7 +348,6 @@ const AttachmentAnalysis = () => {
                     </div>
                   </div>
 
-                  {/* structured findings short-list */}
                   {aiAnalysis.findings && (
                     <div className="mt-2">
                       <strong>Key metrics:</strong>
@@ -400,6 +400,18 @@ const AttachmentAnalysis = () => {
           </div>
         </div>
       </div>
+
+      {/* Annotator modal */}
+      {annotatorOpen && annotatorSrc && (
+        <ImageAnnotatorModal
+          src={annotatorSrc}
+          filename={annotatorFilename}
+          onClose={() => {
+            setAnnotatorOpen(false);
+            setAnnotatorSrc(null);
+          }}
+        />
+      )}
     </div>
   );
 };
