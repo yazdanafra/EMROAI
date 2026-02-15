@@ -12,6 +12,7 @@ import React, { useEffect, useRef, useState } from "react";
  * - measurement and label text sizes increased
  * - saved state (annotations, mmPerPx, zoom, offset) restored *and applied* so reopening doesn't cause overlay jumps
  * - header layout reworked to be responsive; Close button always visible top-right
+ * - "Adjust" button next to scale forces overlay re-alignment (fixes small mispositioning after zoom)
  */
 export default function ImageAnnotatorModal({
   src,
@@ -31,8 +32,11 @@ export default function ImageAnnotatorModal({
   const [mmPerPx, setMmPerPx] = useState(0.264);
 
   // larger default font sizes (no UI control)
-  const labelFontSize = 22; // bigger label text now
-  const measureFontSize = 18; // bigger measure text
+  const labelFontSize = 25; // bigger label text now
+  const measureFontSize = 25; // bigger measure text
+
+  // tiny state to force re-renders when needed
+  const [alignTick, setAlignTick] = useState(0);
 
   // temporary measurement point in image natural pixels
   const [tempPoint, setTempPoint] = useState(null);
@@ -84,7 +88,6 @@ export default function ImageAnnotatorModal({
 
   /* --------------------------
      Persist / Restore to localStorage
-     Keying by src so each image retains its own annotations.
      -------------------------- */
   const storageKey = src ? `image-annotator:${encodeURIComponent(src)}` : null;
 
@@ -254,7 +257,10 @@ export default function ImageAnnotatorModal({
       return { x: ix * zoom + offset.x, y: iy * zoom + offset.y };
 
     const imgRect = img.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
+    const containerRect = containerRef.current?.getBoundingClientRect?.() || {
+      left: 0,
+      top: 0,
+    };
     const { iw } = getImageNaturalSize();
     const scaleX = imgRect.width / iw || 1;
     const x = imgRect.left - containerRect.left + ix * scaleX;
@@ -732,6 +738,34 @@ export default function ImageAnnotatorModal({
   }, []);
 
   /* --------------------------
+     Adjust overlay (fixes those tiny misalignments after zoom)
+     - Forces a reflow/read of bounding rects and triggers a no-op state change.
+     - Uses RAF to ensure browser had a paint pass.
+     -------------------------- */
+  const adjustOverlay = () => {
+    if (!imgRef.current || !containerRef.current) {
+      // still trigger a tick so UI can re-render if necessary
+      setAlignTick((t) => t + 1);
+      return;
+    }
+
+    // read bounding rects to force layout flush
+    imgRef.current.getBoundingClientRect();
+    containerRef.current.getBoundingClientRect();
+
+    // a tiny no-op state toggles to force React to re-render and recompute svgOverlay
+    setOffset((o) => ({ ...o }));
+    setAlignTick((t) => t + 1);
+
+    // second pass on next frame — helps in some browsers where layout.resolve is async
+    requestAnimationFrame(() => {
+      setZoom((z) => z);
+      setOffset((o) => ({ ...o }));
+      setAlignTick((t) => t + 1);
+    });
+  };
+
+  /* --------------------------
      Render helpers
      -------------------------- */
   const renderAnnotationSVG = (a) => {
@@ -861,19 +895,20 @@ export default function ImageAnnotatorModal({
         aria-hidden
       />
 
-      <div className="relative z-10 w-full max-w-[96vw] max-h-[94vh] bg-white rounded shadow-lg overflow-hidden">
+      {/* reserve space on the right for absolute close button */}
+      <div className="relative z-10 w-full max-w-[96vw] max-h-[94vh] bg-white rounded shadow-lg overflow-hidden pr-16">
         {/* close top-right */}
         <button
           onClick={() => onClose?.()}
-          className="absolute top-3 right-3 z-50 rounded px-2 py-1 bg-gray-100 border"
+          className="absolute top-3 right-4 z-50 rounded px-2 py-1 bg-gray-100 border"
           title="Close"
+          aria-label="Close annotator"
         >
           ✕
         </button>
 
-        {/* header (responsive: wraps on small screens) */}
+        {/* header */}
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b">
-          {/* left info */}
           <div className="flex items-center gap-3 min-w-0">
             <div className="font-semibold truncate max-w-[28ch]">
               {filename}
@@ -890,10 +925,18 @@ export default function ImageAnnotatorModal({
                 className="w-28 border rounded px-2 py-0.5 text-sm"
                 title="Millimetres per pixel. Calibrate for accuracy."
               />
+              {/* Adjust button: forces overlay re-evaluation without changing any values */}
+              <button
+                onClick={adjustOverlay}
+                className="ml-2 px-2 py-1 border rounded text-sm bg-white"
+                title="Adjust overlay to correct any small misalignments"
+              >
+                Adjust
+              </button>
             </div>
           </div>
 
-          {/* right toolbar: allow wrap so buttons don't overflow */}
+          {/* right toolbar */}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <div className="flex gap-2">
               <button
@@ -975,7 +1018,7 @@ export default function ImageAnnotatorModal({
 
             <button
               onClick={() => clearSavedState()}
-              className="px-3 py-1 rounded bg-white border text-sm"
+              className="px-3 py-1 rounded bg-white border text-sm mr-2"
               title="Clear saved annotations for this image"
             >
               Clear saved
@@ -983,7 +1026,7 @@ export default function ImageAnnotatorModal({
           </div>
         </div>
 
-        {/* main viewer: responsive height (smaller on narrow screens) */}
+        {/* main viewer */}
         <div
           ref={containerRef}
           className="relative w-full h-[72vh] sm:h-[60vh] bg-[#111111] cursor-crosshair touch-none"
@@ -1010,6 +1053,7 @@ export default function ImageAnnotatorModal({
                 setTimeout(() => {
                   setZoom((z) => z);
                   setOffset((o) => ({ ...o }));
+                  setAlignTick((t) => t + 1);
                 }, 0);
               }
             }}
